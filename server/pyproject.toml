@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["main", "database", "models", "analytics", "routes", "mcp_server", "strategy"]
+py-modules = ["main", "database", "models", "analytics", "routes", "mcp_server", "strategy", "services"]
 
 [tool.ruff]
 line-length = 88

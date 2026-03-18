@@ -9,18 +9,29 @@ from mcp.server.fastmcp import FastMCP
 # Ensure local imports work when running standalone
 sys.path.insert(0, str(Path(__file__).parent))
 
-from analytics import compute_metrics  # noqa: E402
-from database import PostRecord, SessionLocal, init_db  # noqa: E402
-from strategy import load_strategy, save_strategy, suggest_strategy  # noqa: E402
+from database import SessionLocal, init_db  # noqa: E402
+from services import (  # noqa: E402
+    get_analytics,
+    get_post_count,
+    get_recommendations,
+    get_strategy,
+    get_strategy_suggestions,
+    get_top_posts,
+    list_posts,
+    search_posts,
+    update_strategy_fields,
+)
 
 mcp = FastMCP(
     "li-toolkit",
     instructions="Access your LinkedIn post history and analytics",
 )
 
+# Initialize the database once at import time
+init_db()
+
 
 def _get_db():
-    init_db()
     return SessionLocal()
 
 
@@ -33,7 +44,7 @@ def get_post_analytics() -> str:
     """
     db = _get_db()
     try:
-        metrics = compute_metrics(db)
+        metrics = get_analytics(db)
         return json.dumps(metrics, default=str, indent=2)
     finally:
         db.close()
@@ -49,32 +60,14 @@ def get_posts(limit: int = 50, offset: int = 0) -> str:
     """
     db = _get_db()
     try:
-        records = (
-            db.query(PostRecord)
-            .order_by(PostRecord.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
-        posts = [
-            {
-                "id": r.id,
-                "text": r.text,
-                "likes": r.likes,
-                "comments": r.comments,
-                "reposts": r.reposts,
-                "impressions": r.impressions,
-                "published_at": str(r.published_at) if r.published_at else None,
-            }
-            for r in records
-        ]
+        posts = list_posts(db, limit=limit, offset=offset)
         return json.dumps(posts, indent=2)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_top_posts(count: int = 5) -> str:
+def get_top_posts_tool(count: int = 5) -> str:
     """Get your best-performing LinkedIn posts ranked by engagement.
 
     Args:
@@ -82,21 +75,8 @@ def get_top_posts(count: int = 5) -> str:
     """
     db = _get_db()
     try:
-        records = db.query(PostRecord).all()
-        posts = []
-        for r in records:
-            engagement = r.likes + r.comments * 2
-            posts.append({
-                "text": r.text,
-                "likes": r.likes,
-                "comments": r.comments,
-                "reposts": r.reposts,
-                "impressions": r.impressions,
-                "engagement_score": engagement,
-                "published_at": str(r.published_at) if r.published_at else None,
-            })
-        posts.sort(key=lambda p: p["engagement_score"], reverse=True)
-        return json.dumps(posts[:count], indent=2)
+        posts = get_top_posts(db, count=count)
+        return json.dumps(posts, indent=2)
     finally:
         db.close()
 
@@ -110,28 +90,14 @@ def get_posting_recommendations() -> str:
     """
     db = _get_db()
     try:
-        metrics = compute_metrics(db)
-        if metrics.get("empty"):
-            return json.dumps({
-                "message": (
-                    "No posts stored yet. Use the Chrome"
-                    " extension to collect your LinkedIn"
-                    " posts first."
-                )
-            })
-
-        return json.dumps({
-            "recommendations": metrics.get("recommendations", []),
-            "top_keywords": metrics.get("top_keywords", []),
-            "topic_stats": metrics.get("topic_stats", []),
-            "best_posts_for_reference": metrics.get("top_posts", [])[:3],
-        }, default=str, indent=2)
+        recs = get_recommendations(db)
+        return json.dumps(recs, default=str, indent=2)
     finally:
         db.close()
 
 
 @mcp.tool()
-def search_posts(query: str, limit: int = 20) -> str:
+def search_posts_tool(query: str, limit: int = 20) -> str:
     """Search your LinkedIn posts by keyword.
 
     Args:
@@ -140,43 +106,25 @@ def search_posts(query: str, limit: int = 20) -> str:
     """
     db = _get_db()
     try:
-        records = (
-            db.query(PostRecord)
-            .filter(PostRecord.text.contains(query))
-            .order_by(PostRecord.created_at.desc())
-            .limit(limit)
-            .all()
-        )
-        posts = [
-            {
-                "id": r.id,
-                "text": r.text,
-                "likes": r.likes,
-                "comments": r.comments,
-                "reposts": r.reposts,
-                "impressions": r.impressions,
-                "published_at": str(r.published_at) if r.published_at else None,
-            }
-            for r in records
-        ]
+        posts = search_posts(db, query=query, limit=limit)
         return json.dumps(posts, indent=2)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_post_count() -> str:
+def get_post_count_tool() -> str:
     """Get the total number of LinkedIn posts stored."""
     db = _get_db()
     try:
-        count = db.query(PostRecord).count()
+        count = get_post_count(db)
         return json.dumps({"count": count})
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_strategy() -> str:
+def get_strategy_tool() -> str:
     """Get your current LinkedIn content strategy.
 
     Returns your defined strategy (topics, audience, goals, tone, etc.)
@@ -184,7 +132,7 @@ def get_strategy() -> str:
     has been set up yet. Use this to understand what to ask the user
     when helping them define their strategy.
     """
-    strategy = load_strategy()
+    strategy = get_strategy()
     return json.dumps(strategy, indent=2)
 
 
@@ -200,12 +148,14 @@ def update_strategy(
 ) -> str:
     """Update the user's LinkedIn content strategy.
 
-    Call this to save strategy choices after discussing them with the user.
-    Only provide the fields you want to update — others will be preserved.
+    Call this to save strategy choices after discussing them
+    with the user.
+    Only provide the fields you want to update — others
+    will be preserved.
 
     Args:
         topics: List of topics the user writes about.
-            E.g., ["AI/ML", "Data Engineering", "Leadership"].
+            E.g., ["AI/ML", "Data Engineering"].
         audience: Who they're writing for.
             E.g., "Senior engineers and tech leads".
         goals: What they want to achieve.
@@ -213,27 +163,20 @@ def update_strategy(
         frequency: How often they want to post.
             E.g., "3 times per week".
         tone: Preferred writing style.
-            E.g., "Conversational, direct, uses real examples".
-        languages: Languages they post in. E.g., ["English", "Italian"].
+            E.g., "Conversational and direct".
+        languages: Languages they post in.
+            E.g., ["English", "Italian"].
         notes: Any additional context for AI assistants.
     """
-    current = load_strategy()
-    if topics is not None:
-        current["topics"]["value"] = topics
-    if audience is not None:
-        current["audience"]["value"] = audience
-    if goals is not None:
-        current["goals"]["value"] = goals
-    if frequency is not None:
-        current["frequency"]["value"] = frequency
-    if tone is not None:
-        current["tone"]["value"] = tone
-    if languages is not None:
-        current["languages"]["value"] = languages
-    if notes is not None:
-        current["notes"]["value"] = notes
-
-    saved = save_strategy(current)
+    saved = update_strategy_fields(
+        topics=topics,
+        audience=audience,
+        goals=goals,
+        frequency=frequency,
+        tone=tone,
+        languages=languages,
+        notes=notes,
+    )
     return json.dumps(saved, indent=2)
 
 
@@ -241,9 +184,10 @@ def update_strategy(
 def suggest_strategy_from_data() -> str:
     """Analyze your LinkedIn post history and suggest a content strategy.
 
-    Use this as the first step when helping a user set up their strategy.
-    It examines their actual post performance to suggest topics, timing,
-    length, and language based on what has worked best for them.
+    Use this as the first step when helping a user set up their
+    strategy. It examines their actual post performance to suggest
+    topics, timing, length, and language based on what has worked
+    best for them.
 
     After getting suggestions, walk the user through each section,
     presenting the data-driven insights and asking for their input
@@ -251,7 +195,7 @@ def suggest_strategy_from_data() -> str:
     """
     db = _get_db()
     try:
-        suggestions = suggest_strategy(db)
+        suggestions = get_strategy_suggestions(db)
         return json.dumps(suggestions, default=str, indent=2)
     finally:
         db.close()

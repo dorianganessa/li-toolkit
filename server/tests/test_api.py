@@ -38,7 +38,10 @@ def test_list_posts(client, sample_posts):
     assert resp.status_code == 200
     posts = resp.json()
     assert len(posts) == 3
-    assert all(key in posts[0] for key in ["id", "text", "likes", "comments"])
+    assert all(
+        key in posts[0]
+        for key in ["id", "text", "likes", "comments"]
+    )
 
 
 def test_list_posts_pagination(client, sample_posts):
@@ -69,3 +72,32 @@ def test_save_empty_list(client):
     resp = client.post("/api/posts", json=[])
     assert resp.status_code == 200
     assert resp.json()["saved"] == 0
+
+
+# ---- Input validation ----
+
+def test_reject_negative_likes(client):
+    posts = [{"text": "Bad post", "likes": -1, "comments": 0}]
+    resp = client.post("/api/posts", json=posts)
+    assert resp.status_code == 422
+
+
+def test_reject_negative_comments(client):
+    posts = [{"text": "Bad post", "likes": 0, "comments": -5}]
+    resp = client.post("/api/posts", json=posts)
+    assert resp.status_code == 422
+
+
+def test_reject_negative_impressions(client):
+    posts = [{
+        "text": "Bad post", "likes": 0, "comments": 0,
+        "impressions": -100,
+    }]
+    resp = client.post("/api/posts", json=posts)
+    assert resp.status_code == 422
+
+
+def test_reject_missing_required_fields(client):
+    posts = [{"text": "Only text"}]
+    resp = client.post("/api/posts", json=posts)
+    assert resp.status_code == 422
