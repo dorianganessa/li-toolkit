@@ -6,14 +6,14 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from analytics import (
+    _analyze_day_of_week,
+    _analyze_hour,
     _analyze_keywords,
     _analyze_language,
     _analyze_length,
     _analyze_topics,
     _build_post_data,
     _has_temporal_data,
-    _analyze_day_of_week,
-    _analyze_hour,
 )
 from database import PostRecord
 
@@ -22,7 +22,11 @@ _strategy_path = Path(__file__).parent / "strategy.json"
 
 STRATEGY_TEMPLATE = {
     "topics": {
-        "description": "Topics you write about. List your core topics and optionally which ones you want to grow.",
+        "description": (
+            "Topics you write about. List your core"
+            " topics and optionally which ones you"
+            " want to grow."
+        ),
         "value": [],
     },
     "audience": {
@@ -30,7 +34,11 @@ STRATEGY_TEMPLATE = {
         "value": "",
     },
     "goals": {
-        "description": "What you want to achieve with your LinkedIn content. E.g., thought leadership, hiring, lead generation.",
+        "description": (
+            "What you want to achieve with your"
+            " LinkedIn content. E.g., thought"
+            " leadership, hiring, lead generation."
+        ),
         "value": "",
     },
     "frequency": {
@@ -38,7 +46,11 @@ STRATEGY_TEMPLATE = {
         "value": "",
     },
     "tone": {
-        "description": "Your preferred writing style. E.g., 'conversational and direct', 'professional but approachable'.",
+        "description": (
+            "Your preferred writing style. E.g.,"
+            " 'conversational and direct',"
+            " 'professional but approachable'."
+        ),
         "value": "",
     },
     "languages": {
@@ -78,7 +90,12 @@ def suggest_strategy(db: Session) -> dict:
     if not records:
         return {
             "has_data": False,
-            "message": "No posts stored yet. Collect your LinkedIn posts first using the Chrome extension, then I can analyze your performance and suggest a strategy.",
+            "message": (
+                "No posts stored yet. Collect your LinkedIn"
+                " posts first using the Chrome extension,"
+                " then I can analyze your performance and"
+                " suggest a strategy."
+            ),
         }
 
     posts = _build_post_data(records)
@@ -120,7 +137,8 @@ def suggest_strategy(db: Session) -> dict:
     # Top keywords as tone/content hints
     if keyword_stats:
         suggestions["tone_hints"] = [
-            f"Posts mentioning '{k['keyword']}' average {k['avg_engagement']} engagement"
+            f"Posts mentioning '{k['keyword']}' average"
+            f" {k['avg_engagement']} engagement"
             for k in keyword_stats[:5]
         ]
 
@@ -128,11 +146,11 @@ def suggest_strategy(db: Session) -> dict:
     if language_stats:
         suggestions["language_suggestion"] = [
             {
-                "language": l["language"],
-                "post_count": l["count"],
-                "avg_engagement": l["avg_engagement"],
+                "language": lang["language"],
+                "post_count": lang["count"],
+                "avg_engagement": lang["avg_engagement"],
             }
-            for l in language_stats
+            for lang in language_stats
         ]
 
     # Posting frequency from data

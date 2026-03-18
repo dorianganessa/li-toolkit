@@ -1,6 +1,5 @@
 """Tests for the strategy system."""
 
-import json
 import tempfile
 from pathlib import Path
 

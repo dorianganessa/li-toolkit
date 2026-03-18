@@ -21,7 +21,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="li-toolkit",
     version="0.1.0",
-    description="Local API server that stores your LinkedIn posts and computes analytics.",
+    description=(
+        "Local API server that stores your LinkedIn"
+        " posts and computes analytics."
+    ),
     lifespan=lifespan,
 )
 

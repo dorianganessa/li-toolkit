@@ -16,7 +16,10 @@ _tmp.close()
 from database import Base, get_db  # noqa: E402
 from main import app  # noqa: E402
 
-_engine = create_engine(f"sqlite:///{_tmp.name}", connect_args={"check_same_thread": False})
+_engine = create_engine(
+    f"sqlite:///{_tmp.name}",
+    connect_args={"check_same_thread": False},
+)
 _TestSession = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
 
 

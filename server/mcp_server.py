@@ -1,7 +1,6 @@
 """MCP server exposing LinkedIn analytics to LLM clients."""
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -16,7 +15,7 @@ from strategy import load_strategy, save_strategy, suggest_strategy  # noqa: E40
 
 mcp = FastMCP(
     "li-toolkit",
-    description="Access your LinkedIn post history and analytics",
+    instructions="Access your LinkedIn post history and analytics",
 )
 
 
@@ -113,7 +112,13 @@ def get_posting_recommendations() -> str:
     try:
         metrics = compute_metrics(db)
         if metrics.get("empty"):
-            return json.dumps({"message": "No posts stored yet. Use the Chrome extension to collect your LinkedIn posts first."})
+            return json.dumps({
+                "message": (
+                    "No posts stored yet. Use the Chrome"
+                    " extension to collect your LinkedIn"
+                    " posts first."
+                )
+            })
 
         return json.dumps({
             "recommendations": metrics.get("recommendations", []),
@@ -199,11 +204,16 @@ def update_strategy(
     Only provide the fields you want to update — others will be preserved.
 
     Args:
-        topics: List of topics the user writes about. E.g., ["AI/ML", "Data Engineering", "Leadership"].
-        audience: Who they're writing for. E.g., "Senior engineers and tech leads".
-        goals: What they want to achieve. E.g., "Thought leadership and hiring".
-        frequency: How often they want to post. E.g., "3 times per week".
-        tone: Preferred writing style. E.g., "Conversational, direct, uses real examples".
+        topics: List of topics the user writes about.
+            E.g., ["AI/ML", "Data Engineering", "Leadership"].
+        audience: Who they're writing for.
+            E.g., "Senior engineers and tech leads".
+        goals: What they want to achieve.
+            E.g., "Thought leadership and hiring".
+        frequency: How often they want to post.
+            E.g., "3 times per week".
+        tone: Preferred writing style.
+            E.g., "Conversational, direct, uses real examples".
         languages: Languages they post in. E.g., ["English", "Italian"].
         notes: Any additional context for AI assistants.
     """

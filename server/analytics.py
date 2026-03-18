@@ -176,7 +176,9 @@ def _analyze_length(posts: list[dict]) -> list[dict]:
                 "count": len(ps),
                 "avg_engagement": round(sum(p["engagement"] for p in ps) / len(ps), 1),
                 "avg_likes": round(sum(p["likes"] for p in ps) / len(ps), 1),
-                "avg_impressions": round(sum(p["impressions"] for p in ps) / len(ps), 0),
+                "avg_impressions": round(
+                    sum(p["impressions"] for p in ps) / len(ps), 0
+                ),
             })
     return result
 
