@@ -1,0 +1,29 @@
+[project]
+name = "li-toolkit-server"
+version = "0.1.0"
+description = "Local server that collects your LinkedIn posts via a Chrome extension, computes analytics, and exposes them through a REST API and MCP server for LLM integration."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic>=2.0",
+    "sqlalchemy>=2.0",
+    "mcp[cli]>=1.0",
+]
+
+[tool.setuptools]
+py-modules = ["main", "database", "models", "analytics", "routes", "mcp_server", "strategy"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.1",
+    "pytest>=8.0",
+    "httpx>=0.27",
+]

@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "LI Post Collector",
+  "version": "1.0.0",
+  "description": "Extracts your LinkedIn posts and sends them to a local server for analytics.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.linkedin.com/*",
+    "http://localhost:*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.linkedin.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
