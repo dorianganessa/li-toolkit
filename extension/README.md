@@ -59,3 +59,28 @@ const SEL = {
   analyticsLink: 'a.analytics-entry-point',
 };
 ```
+
+## Known issue: `chrome-extension://invalid/` errors after uninstalling
+
+### What happens
+
+After removing this extension (or similar LinkedIn-targeting extensions) from `chrome://extensions`, LinkedIn may flood the console with thousands of `net::ERR_FAILED` errors for `chrome-extension://invalid/`. This happens even when the extension was removed properly through the Chrome UI.
+
+### Why
+
+This extension uses `"all_frames": true` in its content script config, injecting into every iframe on LinkedIn. LinkedIn loads dozens of iframes and caches references to injected extension resources. After the extension is removed, Chrome invalidates these URLs to `chrome-extension://invalid/`, but LinkedIn's cached state keeps retrying them in a loop — generating thousands of errors per minute.
+
+### How to fix
+
+If you see this after removing the extension:
+
+1. Close all LinkedIn tabs
+2. Go to `chrome://settings/content/all`, find `linkedin.com`, and delete all its site data
+3. Restart Chrome completely (quit and reopen, not just close the window)
+
+If that doesn't work:
+
+1. Re-add the extension temporarily: `chrome://extensions/` → **Load unpacked** → select this `extension/` folder
+2. Reload LinkedIn to let the extension re-establish its content scripts
+3. Remove the extension again from `chrome://extensions/`
+4. Restart Chrome
