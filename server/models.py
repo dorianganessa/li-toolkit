@@ -28,4 +28,5 @@ class SaveResponse(BaseModel):
 
     saved: int
     duplicates: int
+    updated: int = 0
     total: int

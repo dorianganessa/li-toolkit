@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from datetime import datetime, timedelta
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -12,11 +14,20 @@ from analytics import (
     _build_post_data,
     _engagement_score,
     compute_metrics,
+    compute_velocity,
+    get_engagement_trend,
 )
-from database import PostRecord
+from database import PostRecord, PostSnapshot
 from models import LinkedInPost
 from readability import compute_readability
 from strategy import load_strategy, save_strategy, suggest_strategy
+
+# Posts younger than this are eligible for re-scraping
+_RESCRAPE_AGE = timedelta(days=14)
+# Minimum time between snapshots
+_MIN_SNAPSHOT_INTERVAL = timedelta(hours=6)
+# Maximum snapshots per post
+_MAX_SNAPSHOTS = 10
 
 logger = logging.getLogger(__name__)
 
@@ -31,19 +42,25 @@ class ServiceError(Exception):
 
 
 def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
-    """Save posts, skipping duplicates. Returns counts."""
+    """Save new posts and update engagement on recent duplicates."""
     saved = 0
     duplicates = 0
+    updated = 0
+    now = datetime.utcnow()
 
     try:
         for post in posts:
-            exists = (
+            existing = (
                 db.query(PostRecord)
                 .filter(PostRecord.text_hash == post.text_hash)
                 .first()
             )
-            if exists:
-                duplicates += 1
+            if existing:
+                if _should_rescrape(existing, now):
+                    _update_engagement(db, existing, post, now)
+                    updated += 1
+                else:
+                    duplicates += 1
                 continue
 
             record = PostRecord(
@@ -54,6 +71,7 @@ def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
                 reposts=post.reposts,
                 impressions=post.impressions,
                 published_at=post.published_at,
+                last_scraped_at=now,
             )
             db.add(record)
             saved += 1
@@ -64,7 +82,64 @@ def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
         logger.exception("Failed to save posts")
         raise ServiceError("Failed to save posts", status_code=500)
 
-    return {"saved": saved, "duplicates": duplicates, "total": len(posts)}
+    return {
+        "saved": saved,
+        "duplicates": duplicates,
+        "updated": updated,
+        "total": len(posts),
+    }
+
+
+def _should_rescrape(record: PostRecord, now: datetime) -> bool:
+    """Check if a post is eligible for re-scraping."""
+    age = now - (record.created_at or now)
+    if age > _RESCRAPE_AGE:
+        return False
+    if record.last_scraped_at:
+        since_last = now - record.last_scraped_at
+        if since_last < _MIN_SNAPSHOT_INTERVAL:
+            return False
+    return True
+
+
+def _update_engagement(
+    db: Session,
+    record: PostRecord,
+    post: LinkedInPost,
+    now: datetime,
+) -> None:
+    """Update engagement numbers and create a snapshot."""
+    # Check for edited post
+    new_hash = hashlib.sha256(post.text.encode()).hexdigest()
+    if new_hash != record.text_hash:
+        record.text = post.text
+        record.text_hash = new_hash
+        record.edited = True
+
+    # Create snapshot before updating (capture previous state)
+    snapshot_count = (
+        db.query(PostSnapshot)
+        .filter(PostSnapshot.post_id == record.id)
+        .count()
+    )
+    if snapshot_count < _MAX_SNAPSHOTS:
+        db.add(PostSnapshot(
+            post_id=record.id,
+            likes=record.likes,
+            comments=record.comments,
+            reposts=record.reposts,
+            impressions=record.impressions,
+            scraped_at=record.last_scraped_at or record.created_at,
+        ))
+
+    # Update to new engagement numbers
+    record.likes = post.likes
+    record.comments = post.comments
+    record.reposts = post.reposts
+    record.impressions = post.impressions
+    record.last_scraped_at = now
+    if post.published_at and not record.published_at:
+        record.published_at = post.published_at
 
 
 def list_posts(
@@ -253,6 +328,64 @@ def analyze_draft(db: Session, text: str) -> dict:
             if comparisons
             else "Metrics are close to your averages"
         ),
+    }
+
+
+def get_velocity(db: Session, post_id: int) -> dict:
+    """Get engagement velocity for a specific post."""
+    result = compute_velocity(db, post_id)
+    if not result:
+        return {
+            "message": (
+                "No velocity data. Post needs at least"
+                " one re-scrape to track engagement changes."
+            ),
+        }
+    return result
+
+
+def get_recent_velocity(db: Session, count: int = 5) -> list[dict]:
+    """Get velocity for the most recent posts that have snapshots."""
+    from database import PostSnapshot
+
+    post_ids = (
+        db.query(PostSnapshot.post_id)
+        .distinct()
+        .order_by(PostSnapshot.post_id.desc())
+        .limit(count)
+        .all()
+    )
+    results = []
+    for (pid,) in post_ids:
+        v = compute_velocity(db, pid)
+        if v:
+            post = (
+                db.query(PostRecord)
+                .filter(PostRecord.id == pid)
+                .first()
+            )
+            v["text_preview"] = (
+                post.text[:100] + "..." if post and len(post.text) > 100
+                else post.text if post else ""
+            )
+            results.append(v)
+    return results
+
+
+def get_trends(db: Session, days: int = 90) -> dict:
+    """Get engagement trends over time."""
+    weekly = get_engagement_trend(db, days=days)
+    if not weekly:
+        return {
+            "has_data": False,
+            "message": "Not enough data for trends.",
+        }
+
+    return {
+        "has_data": True,
+        "period_days": days,
+        "weekly_engagement": weekly,
+        "total_weeks": len(weekly),
     }
 
 

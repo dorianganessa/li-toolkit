@@ -10,17 +10,24 @@ from mcp.server.fastmcp import FastMCP
 sys.path.insert(0, str(Path(__file__).parent))
 
 from database import SessionLocal, init_db  # noqa: E402
-from services import analyze_draft as svc_analyze_draft  # noqa: E402
 from services import (  # noqa: E402
+    analyze_draft as svc_analyze_draft,
+)
+from services import (
     get_analytics,
     get_post_count,
+    get_recent_velocity,
     get_recommendations,
     get_strategy,
     get_strategy_suggestions,
     get_top_posts,
+    get_velocity,
     list_posts,
     search_posts,
     update_strategy_fields,
+)
+from services import (
+    get_trends as svc_get_trends,
 )
 
 mcp = FastMCP(
@@ -225,6 +232,56 @@ def analyze_draft(text: str) -> str:
     db = _get_db()
     try:
         result = svc_analyze_draft(db, text)
+        return json.dumps(result, default=str, indent=2)
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def get_engagement_velocity(post_id: int | None = None) -> str:
+    """Get engagement velocity for a post or recent posts.
+
+    Shows how fast engagement is growing over time, based on
+    re-scraping snapshots. Includes per-interval rates and a
+    trajectory classification (accelerating, peaked, steady,
+    declining).
+
+    If post_id is provided, returns velocity for that specific
+    post. Otherwise returns velocity for the 5 most recent posts
+    that have snapshot data.
+
+    Re-scraping happens automatically when you collect posts
+    using the Chrome extension. Posts younger than 14 days get
+    their engagement numbers updated on each scrape.
+
+    Args:
+        post_id: Specific post ID to check, or None for recent.
+    """
+    db = _get_db()
+    try:
+        if post_id is not None:
+            result = get_velocity(db, post_id)
+        else:
+            result = get_recent_velocity(db)
+        return json.dumps(result, default=str, indent=2)
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def get_trends_tool(days: int = 90) -> str:
+    """Get engagement trends over time.
+
+    Shows weekly engagement averages, post counts, and totals
+    for the specified period. Use this to understand whether
+    engagement is growing, declining, or flat over time.
+
+    Args:
+        days: Number of days to look back (default 90).
+    """
+    db = _get_db()
+    try:
+        result = svc_get_trends(db, days=days)
         return json.dumps(result, default=str, indent=2)
     finally:
         db.close()

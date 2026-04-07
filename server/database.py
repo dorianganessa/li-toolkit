@@ -4,8 +4,11 @@ import os
 from pathlib import Path
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
+    ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -44,6 +47,28 @@ class PostRecord(Base):
     impressions: int = Column(Integer, nullable=False, default=0)
     published_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+    last_scraped_at = Column(DateTime, nullable=True)
+    edited = Column(Boolean, nullable=True, default=False)
+
+
+class PostSnapshot(Base):
+    """Engagement snapshot for tracking velocity over time."""
+
+    __tablename__ = "post_snapshots"
+
+    id: int = Column(Integer, primary_key=True, autoincrement=True)
+    post_id: int = Column(
+        Integer, ForeignKey("posts.id"), nullable=False,
+    )
+    likes: int = Column(Integer, default=0)
+    comments: int = Column(Integer, default=0)
+    reposts: int = Column(Integer, default=0)
+    impressions: int = Column(Integer, default=0)
+    scraped_at = Column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index("ix_snapshot_post_time", "post_id", "scraped_at"),
+    )
 
 
 def init_db() -> None:
@@ -53,10 +78,21 @@ def init_db() -> None:
     with engine.connect() as conn:
         cols = [
             row[1]
-            for row in conn.execute(text("PRAGMA table_info(posts)")).fetchall()
+            for row in conn.execute(
+                text("PRAGMA table_info(posts)"),
+            ).fetchall()
         ]
-        if "published_at" not in cols:
-            conn.execute(text("ALTER TABLE posts ADD COLUMN published_at DATETIME"))
+        migrations = {
+            "published_at": "ALTER TABLE posts ADD COLUMN published_at DATETIME",
+            "last_scraped_at": "ALTER TABLE posts ADD COLUMN last_scraped_at DATETIME",
+            "edited": "ALTER TABLE posts ADD COLUMN edited BOOLEAN DEFAULT 0",
+        }
+        applied = False
+        for col_name, ddl in migrations.items():
+            if col_name not in cols:
+                conn.execute(text(ddl))
+                applied = True
+        if applied:
             conn.commit()
 
 
