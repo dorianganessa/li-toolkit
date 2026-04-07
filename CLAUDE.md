@@ -1,4 +1,6 @@
-## Skill routing
+## Skill routing (gstack plugin)
+
+These routing rules are used by the gstack plugin for Claude Code.
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
 tool as your FIRST action. Do NOT answer directly, do NOT use other tools first.
