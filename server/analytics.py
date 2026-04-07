@@ -5,6 +5,7 @@ import re
 from sqlalchemy.orm import Session
 
 from database import PostRecord
+from readability import compute_readability
 
 # Common stopwords (English + Italian) to filter out of keyword analysis
 _STOPWORDS = {
@@ -66,13 +67,21 @@ TOPICS = {
 }
 
 
+def _engagement_score(likes: int, comments: int, reposts: int) -> int:
+    """Engagement score: reposts > comments > likes."""
+    return likes + comments * 2 + reposts * 3
+
+
 def _build_post_data(records: list[PostRecord]) -> list[dict]:
     """Transform database records into enriched post dicts."""
     posts = []
     for r in records:
-        engagement = r.likes + r.comments * 2
+        engagement = _engagement_score(r.likes, r.comments, r.reposts)
         imp = r.impressions if r.impressions > 0 else 1
-        engagement_rate = round((r.likes + r.comments) / imp * 100, 2)
+        engagement_rate = round(
+            (r.likes + r.comments + r.reposts) / imp * 100, 2,
+        )
+        readability = compute_readability(r.text)
         posts.append({
             "text": r.text,
             "likes": r.likes,
@@ -83,11 +92,12 @@ def _build_post_data(records: list[PostRecord]) -> list[dict]:
             "engagement_rate": engagement_rate,
             "length": len(r.text),
             "published_at": r.published_at,
+            **readability,
         })
     return posts
 
 
-def compute_metrics(db: Session) -> dict:
+def compute_metrics(db: Session, custom_topics: dict | None = None) -> dict:
     """Compute all aggregate metrics across stored posts."""
     records = db.query(PostRecord).all()
 
@@ -136,7 +146,10 @@ def compute_metrics(db: Session) -> dict:
         "posts_with_dates": len([p for p in posts if p["published_at"]]),
         "day_of_week_stats": _analyze_day_of_week(posts),
         "hour_stats": _analyze_hour(posts),
-        "topic_stats": _analyze_topics(posts),
+        "topic_stats": _analyze_topics(posts, custom_topics=custom_topics),
+        "readability_vs_engagement": _analyze_readability(posts),
+        "emoji_vs_engagement": _analyze_emoji_engagement(posts),
+        "avg_readability": _avg_readability(posts),
         "recommendations": _build_recommendations(posts),
         "top_posts": sorted(posts, key=lambda p: p["engagement"], reverse=True)[:5],
         "bottom_posts": _get_bottom_posts(posts),
@@ -276,14 +289,20 @@ def _analyze_hour(posts: list[dict]) -> list[dict]:
     return result
 
 
-def _analyze_topics(posts: list[dict]) -> list[dict]:
+def _analyze_topics(posts: list[dict], custom_topics: dict | None = None) -> list[dict]:
     """Classify posts into topic clusters and compare performance."""
-    topic_posts: dict[str, list[dict]] = {t: [] for t in TOPICS}
+    all_topics = dict(TOPICS)
+    if custom_topics:
+        for name, keywords in custom_topics.items():
+            all_topics[name] = set(keywords)
+
+    topic_posts: dict[str, list[dict]] = {t: [] for t in all_topics}
 
     for p in posts:
         words = set(re.findall(r"[a-zA-ZàèéìòùÀÈÉÌÒÙ]{3,}", p["text"].lower()))
-        for topic_name, topic_words in TOPICS.items():
-            if len(words & topic_words) >= 2:
+        for topic_name, topic_words in all_topics.items():
+            kw_set = topic_words if isinstance(topic_words, set) else set(topic_words)
+            if len(words & kw_set) >= 2:
                 topic_posts[topic_name].append(p)
 
     result = []
@@ -368,7 +387,114 @@ def _build_recommendations(posts: list[dict]) -> list[dict]:
                       f"({best_lang['count']} posts)",
         })
 
+    readability_analysis = _analyze_readability(posts)
+    if readability_analysis:
+        best_read = max(readability_analysis, key=lambda x: x["avg_engagement"])
+        recs.append({
+            "type": "best_readability",
+            "label": "Best performing readability level",
+            "value": best_read["label"],
+            "detail": f"Avg engagement {best_read['avg_engagement']} "
+                      f"({best_read['count']} posts)",
+        })
+
+    emoji_analysis = _analyze_emoji_engagement(posts)
+    if emoji_analysis:
+        best_emoji = max(emoji_analysis, key=lambda x: x["avg_engagement"])
+        recs.append({
+            "type": "best_emoji_usage",
+            "label": "Best performing emoji usage",
+            "value": best_emoji["label"],
+            "detail": f"Avg engagement {best_emoji['avg_engagement']} "
+                      f"({best_emoji['count']} posts)",
+        })
+
     return recs
+
+
+def _analyze_readability(posts: list[dict]) -> list[dict]:
+    """Analyze readability vs engagement."""
+    categories = {
+        "Very easy (0-5)": {"posts": [], "label": "Very easy"},
+        "Easy (5-8)": {"posts": [], "label": "Easy"},
+        "Standard (8-12)": {"posts": [], "label": "Standard"},
+        "Advanced (12+)": {"posts": [], "label": "Advanced"},
+    }
+    for p in posts:
+        fk = p.get("flesch_kincaid_grade", 0)
+        if fk < 5:
+            categories["Very easy (0-5)"]["posts"].append(p)
+        elif fk < 8:
+            categories["Easy (5-8)"]["posts"].append(p)
+        elif fk < 12:
+            categories["Standard (8-12)"]["posts"].append(p)
+        else:
+            categories["Advanced (12+)"]["posts"].append(p)
+
+    result = []
+    for key, val in categories.items():
+        ps = val["posts"]
+        if ps:
+            result.append({
+                "label": val["label"],
+                "range": key,
+                "count": len(ps),
+                "avg_engagement": round(
+                    sum(p["engagement"] for p in ps) / len(ps), 1,
+                ),
+            })
+    return result
+
+
+def _analyze_emoji_engagement(posts: list[dict]) -> list[dict]:
+    """Analyze emoji density vs engagement."""
+    categories = {
+        "None (0%)": {"posts": [], "label": "No emoji"},
+        "Light (0-1%)": {"posts": [], "label": "Light emoji"},
+        "Heavy (1%+)": {"posts": [], "label": "Heavy emoji"},
+    }
+    for p in posts:
+        density = p.get("emoji_density", 0)
+        if density == 0:
+            categories["None (0%)"]["posts"].append(p)
+        elif density < 0.01:
+            categories["Light (0-1%)"]["posts"].append(p)
+        else:
+            categories["Heavy (1%+)"]["posts"].append(p)
+
+    result = []
+    for key, val in categories.items():
+        ps = val["posts"]
+        if ps:
+            result.append({
+                "label": val["label"],
+                "count": len(ps),
+                "avg_engagement": round(
+                    sum(p["engagement"] for p in ps) / len(ps), 1,
+                ),
+            })
+    return result
+
+
+def _avg_readability(posts: list[dict]) -> dict:
+    """Compute average readability metrics across all posts."""
+    if not posts:
+        return {}
+    n = len(posts)
+    return {
+        "avg_flesch_kincaid": round(
+            sum(p.get("flesch_kincaid_grade", 0) for p in posts) / n, 1,
+        ),
+        "avg_sentence_length": round(
+            sum(p.get("avg_sentence_length", 0) for p in posts) / n, 1,
+        ),
+        "avg_vocab_richness": round(
+            sum(p.get("vocab_richness", 0) for p in posts) / n, 3,
+        ),
+        "avg_word_count": round(
+            sum(p.get("word_count", 0) for p in posts) / n, 0,
+        ),
+    }
 
 
 def _get_bottom_posts(posts: list[dict]) -> list[dict]:

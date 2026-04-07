@@ -8,13 +8,17 @@ from datetime import datetime
 
 from analytics import (
     _analyze_day_of_week,
+    _analyze_emoji_engagement,
     _analyze_hour,
     _analyze_keywords,
     _analyze_language,
     _analyze_length,
+    _analyze_readability,
     _analyze_topics,
+    _avg_readability,
     _build_post_data,
     _build_recommendations,
+    _engagement_score,
     _get_bottom_posts,
 )
 from database import PostRecord
@@ -45,32 +49,59 @@ def _make_record(
 # _build_post_data
 # ---------------------------------------------------------------------------
 
+class TestEngagementScore:
+    def test_basic(self):
+        assert _engagement_score(10, 5, 3) == 10 + 5 * 2 + 3 * 3  # 29
+
+    def test_reposts_weighted_highest(self):
+        # Reposts at 3x should outweigh likes at 1x
+        assert _engagement_score(0, 0, 10) > _engagement_score(10, 0, 0)
+
+    def test_comments_weighted_middle(self):
+        assert _engagement_score(0, 10, 0) > _engagement_score(10, 0, 0)
+        assert _engagement_score(0, 0, 10) > _engagement_score(0, 10, 0)
+
+    def test_zeros(self):
+        assert _engagement_score(0, 0, 0) == 0
+
+
 class TestBuildPostData:
     def test_engagement_calculation(self):
-        records = [_make_record(likes=42, comments=5)]
+        records = [_make_record(likes=42, comments=5, reposts=3)]
         posts = _build_post_data(records)
-        assert posts[0]["engagement"] == 52  # 42 + 5*2
+        # 42 + 5*2 + 3*3 = 61
+        assert posts[0]["engagement"] == 61
 
     def test_engagement_rate_with_impressions(self):
         records = [
-            _make_record(likes=10, comments=5, impressions=1000),
+            _make_record(likes=10, comments=5, reposts=2, impressions=1000),
         ]
         posts = _build_post_data(records)
-        # rate = (10 + 5) / 1000 * 100 = 1.5
-        assert posts[0]["engagement_rate"] == 1.5
+        # rate = (10 + 5 + 2) / 1000 * 100 = 1.7
+        assert posts[0]["engagement_rate"] == 1.7
 
     def test_zero_impressions_uses_fallback(self):
         records = [
-            _make_record(likes=10, comments=5, impressions=0),
+            _make_record(likes=10, comments=5, reposts=0, impressions=0),
         ]
         posts = _build_post_data(records)
-        # impressions clamped to 1, rate = (10+5)/1 * 100 = 1500.0
+        # impressions clamped to 1, rate = (10+5+0)/1 * 100 = 1500.0
         assert posts[0]["engagement_rate"] == 1500.0
 
     def test_length_is_character_count(self):
         records = [_make_record(text="Hello world")]
         posts = _build_post_data(records)
         assert posts[0]["length"] == 11
+
+    def test_readability_fields_present(self):
+        records = [_make_record(text="This is a test sentence.")]
+        posts = _build_post_data(records)
+        assert "flesch_kincaid_grade" in posts[0]
+        assert "avg_sentence_length" in posts[0]
+        assert "vocab_richness" in posts[0]
+        assert "emoji_density" in posts[0]
+        assert "hashtag_count" in posts[0]
+        assert "word_count" in posts[0]
 
 
 # ---------------------------------------------------------------------------
@@ -91,9 +122,9 @@ def test_analytics_aggregate_values(client, sample_posts):
     assert data["empty"] is False
     assert data["total_posts"] == 3
 
-    # Post 1: eng=52, Post 2: eng=156, Post 3: eng=109
-    # avg = (52+156+109)/3 = 105.67
-    assert data["avg_engagement"] == 105.7
+    # Post 1: eng=61, Post 2: eng=186, Post 3: eng=130
+    # avg = (61+186+130)/3 = 125.67
+    assert data["avg_engagement"] == 125.7
 
     # avg likes = (42+120+85)/3 = 82.33
     assert data["avg_likes"] == 82.3
@@ -113,8 +144,8 @@ def test_analytics_engagement_distribution(client, sample_posts):
     assert dist["0"] == 0
     assert dist["1-10"] == 0
     assert dist["11-50"] == 0
-    assert dist["51-100"] == 1   # Post 1: engagement 52
-    assert dist["101-500"] == 2  # Post 2: 156, Post 3: 109
+    assert dist["51-100"] == 1   # Post 1: engagement 61
+    assert dist["101-500"] == 2  # Post 2: 186, Post 3: 130
     assert dist["500+"] == 0
 
 
@@ -137,7 +168,7 @@ def test_top_posts_order_and_values(client, sample_posts):
     top = client.get("/api/analytics").json()["top_posts"]
 
     engagements = [p["engagement"] for p in top]
-    assert engagements == [156, 109, 52]
+    assert engagements == [186, 130, 61]
 
 
 def test_bottom_posts_excludes_zero(client, sample_posts):
@@ -360,17 +391,17 @@ def test_day_of_week_engagement_values(client, temporal_posts):
     days = data["day_of_week_stats"]
     by_day = {d["day"]: d for d in days}
 
-    # Monday: 1 post, engagement = 20 + 3*2 = 26
-    assert by_day["Mon"]["avg_engagement"] == 26.0
+    # Monday: 1 post, engagement = 20 + 3*2 + 1*3 = 29
+    assert by_day["Mon"]["avg_engagement"] == 29.0
 
     # Tuesday: 2 posts
-    # Post 1: 80 + 15*2 = 110
-    # Post 2: 60 + 10*2 = 80
-    # avg = (110 + 80) / 2 = 95.0
-    assert by_day["Tue"]["avg_engagement"] == 95.0
+    # Post 1: 80 + 15*2 + 5*3 = 125
+    # Post 2: 60 + 10*2 + 3*3 = 89
+    # avg = (125 + 89) / 2 = 107.0
+    assert by_day["Tue"]["avg_engagement"] == 107.0
 
-    # Friday: 1 post, engagement = 40 + 6*2 = 52
-    assert by_day["Fri"]["avg_engagement"] == 52.0
+    # Friday: 1 post, engagement = 40 + 6*2 + 2*3 = 58
+    assert by_day["Fri"]["avg_engagement"] == 58.0
 
     # Days with no posts should have 0 engagement
     assert by_day["Wed"]["avg_engagement"] == 0
@@ -543,6 +574,61 @@ def test_full_metrics_structure(client, sample_posts):
         "engagement_distribution", "length_analysis",
         "language_analysis", "top_keywords", "has_temporal_data",
         "posts_with_dates", "day_of_week_stats", "hour_stats",
-        "topic_stats", "recommendations", "top_posts", "bottom_posts",
+        "topic_stats", "readability_vs_engagement",
+        "emoji_vs_engagement", "avg_readability",
+        "recommendations", "top_posts", "bottom_posts",
     }
     assert expected_keys == set(data.keys())
+
+
+# ---------------------------------------------------------------------------
+# Readability correlation
+# ---------------------------------------------------------------------------
+
+
+def test_readability_vs_engagement():
+    """Posts should be bucketed by FK grade with avg engagement."""
+    posts = [
+        {"flesch_kincaid_grade": 3.0, "engagement": 100},
+        {"flesch_kincaid_grade": 7.0, "engagement": 200},
+        {"flesch_kincaid_grade": 10.0, "engagement": 50},
+    ]
+    result = _analyze_readability(posts)
+    labels = {r["label"] for r in result}
+    assert "Very easy" in labels
+    assert "Easy" in labels
+    assert "Standard" in labels
+
+
+def test_emoji_vs_engagement():
+    """Posts should be bucketed by emoji density."""
+    posts = [
+        {"emoji_density": 0.0, "engagement": 100},
+        {"emoji_density": 0.005, "engagement": 200},
+        {"emoji_density": 0.02, "engagement": 50},
+    ]
+    result = _analyze_emoji_engagement(posts)
+    labels = {r["label"] for r in result}
+    assert "No emoji" in labels
+    assert "Light emoji" in labels
+    assert "Heavy emoji" in labels
+
+
+def test_avg_readability():
+    """Average readability should compute means across posts."""
+    posts = [
+        {"flesch_kincaid_grade": 5.0, "avg_sentence_length": 10.0,
+         "vocab_richness": 0.8, "word_count": 50},
+        {"flesch_kincaid_grade": 9.0, "avg_sentence_length": 20.0,
+         "vocab_richness": 0.6, "word_count": 100},
+    ]
+    result = _avg_readability(posts)
+    assert result["avg_flesch_kincaid"] == 7.0
+    assert result["avg_sentence_length"] == 15.0
+    assert result["avg_vocab_richness"] == 0.7
+    assert result["avg_word_count"] == 75
+
+
+def test_avg_readability_empty():
+    """Empty list should return empty dict."""
+    assert _avg_readability([]) == {}

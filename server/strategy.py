@@ -61,6 +61,15 @@ STRATEGY_TEMPLATE = {
         "description": "Anything else an AI should know when helping you draft posts.",
         "value": "",
     },
+    "custom_topics": {
+        "description": (
+            "Custom topic clusters for analytics."
+            ' Format: {"Topic Name": ["keyword1", "keyword2"]}.'
+            " Custom topics are checked first; built-in topics"
+            " apply to posts not matching any custom topic."
+        ),
+        "value": {},
+    },
 }
 
 
