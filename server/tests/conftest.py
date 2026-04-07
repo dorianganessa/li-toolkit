@@ -67,11 +67,12 @@ def db_session():
 def sample_posts():
     """Three posts with known engagement values for deterministic testing.
 
-    Post 1: engagement = 42 + 5*2 = 52, bucket "51-100"
+    Engagement formula: likes + comments*2 + reposts*3
+    Post 1: engagement = 42 + 5*2 + 3*3 = 61, bucket "51-100"
              Wed Jan 15 09:00, English, length 54 (Short)
-    Post 2: engagement = 120 + 18*2 = 156, bucket "101-500"
+    Post 2: engagement = 120 + 18*2 + 10*3 = 186, bucket "101-500"
              Mon Jan 20 14:30, English, length 60 (Short)
-    Post 3: engagement = 85 + 12*2 = 109, bucket "101-500"
+    Post 3: engagement = 85 + 12*2 + 7*3 = 130, bucket "101-500"
              Sat Feb 1 08:00, English, length 52 (Short)
     """
     return [

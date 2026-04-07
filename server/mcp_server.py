@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 sys.path.insert(0, str(Path(__file__).parent))
 
 from database import SessionLocal, init_db  # noqa: E402
+from services import analyze_draft as svc_analyze_draft  # noqa: E402
 from services import (  # noqa: E402
     get_analytics,
     get_post_count,
@@ -40,7 +41,16 @@ def get_post_analytics() -> str:
     """Get full analytics across all your LinkedIn posts.
 
     Returns aggregate metrics including engagement averages, distribution,
-    top keywords, topic performance, timing analysis, and recommendations.
+    top keywords, topic performance, timing analysis, readability metrics,
+    and recommendations.
+
+    Includes readability_vs_engagement (how reading level correlates with
+    engagement), emoji_vs_engagement, and avg_readability across all posts.
+
+    TIP: You can use the post texts and engagement data to classify
+    hook types (question, story, data, contrarian, etc.) and narrative
+    structures (list, story, problem-solution, etc.) yourself. Look at
+    the opening lines of top_posts to identify what hooks work best.
     """
     db = _get_db()
     try:
@@ -52,7 +62,15 @@ def get_post_analytics() -> str:
 
 @mcp.tool()
 def get_posts(limit: int = 50, offset: int = 0) -> str:
-    """Get your stored LinkedIn posts.
+    """Get your stored LinkedIn posts with readability metrics.
+
+    Each post includes text, engagement stats, and readability metrics
+    (Flesch-Kincaid grade, avg sentence length, vocabulary richness,
+    emoji density, hashtag count, word count).
+
+    TIP: Analyze the opening lines of high-engagement posts to identify
+    hook patterns. Compare post structures (lists, stories, how-tos)
+    to find what resonates with this creator's audience.
 
     Args:
         limit: Maximum number of posts to return (default 50).
@@ -85,8 +103,13 @@ def get_top_posts_tool(count: int = 5) -> str:
 def get_posting_recommendations() -> str:
     """Get data-driven recommendations for when, what, and how to post.
 
-    Returns insights on best days, hours, topics, post length, and language
-    based on your historical post performance.
+    Returns insights on best days, hours, topics, post length, language,
+    readability level, and emoji usage based on your historical post
+    performance.
+
+    TIP: Combine these numeric recommendations with your own analysis
+    of the user's top posts to suggest specific hook types, narrative
+    structures, and content approaches.
     """
     db = _get_db()
     try:
@@ -178,6 +201,33 @@ def update_strategy(
         notes=notes,
     )
     return json.dumps(saved, indent=2)
+
+
+@mcp.tool()
+def analyze_draft(text: str) -> str:
+    """Analyze a draft LinkedIn post before publishing.
+
+    Computes readability metrics for the draft and compares them
+    against the creator's historical averages and top-performing
+    posts. Returns the draft's metrics, historical averages,
+    top posts averages, and a plain-English comparison.
+
+    Use this to check if a draft's readability, length, and style
+    match what has historically performed well for this creator.
+
+    TIP: After getting the numeric comparison, you should also
+    analyze the draft's hook (opening line) and structure yourself
+    by comparing to the creator's top posts from get_top_posts.
+
+    Args:
+        text: The full text of the draft post to analyze.
+    """
+    db = _get_db()
+    try:
+        result = svc_analyze_draft(db, text)
+        return json.dumps(result, default=str, indent=2)
+    finally:
+        db.close()
 
 
 @mcp.tool()

@@ -7,9 +7,15 @@ import logging
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from analytics import compute_metrics
+from analytics import (
+    _avg_readability,
+    _build_post_data,
+    _engagement_score,
+    compute_metrics,
+)
 from database import PostRecord
 from models import LinkedInPost
+from readability import compute_readability
 from strategy import load_strategy, save_strategy, suggest_strategy
 
 logger = logging.getLogger(__name__)
@@ -96,7 +102,16 @@ def get_post_count(db: Session) -> int:
 
 def get_analytics(db: Session) -> dict:
     """Compute full analytics across all stored posts."""
-    return compute_metrics(db)
+    custom_topics = _load_custom_topics()
+    return compute_metrics(db, custom_topics=custom_topics)
+
+
+def _load_custom_topics() -> dict | None:
+    """Load custom topic clusters from strategy, if any."""
+    strategy = load_strategy()
+    ct = strategy.get("custom_topics", {})
+    value = ct.get("value", {}) if isinstance(ct, dict) else {}
+    return value if value else None
 
 
 def search_posts(
@@ -131,7 +146,7 @@ def get_top_posts(db: Session, count: int = 5) -> list[dict]:
     records = db.query(PostRecord).all()
     posts = []
     for r in records:
-        engagement = r.likes + r.comments * 2
+        engagement = _engagement_score(r.likes, r.comments, r.reposts)
         posts.append({
             "text": r.text,
             "likes": r.likes,
@@ -195,6 +210,50 @@ def update_strategy_fields(
         if value is not None:
             current[field]["value"] = value
     return save_strategy(current)
+
+
+def analyze_draft(db: Session, text: str) -> dict:
+    """Analyze a draft post's readability against historical performance."""
+    draft_metrics = compute_readability(text)
+    draft_metrics["char_count"] = len(text)
+
+    records = db.query(PostRecord).all()
+    if not records:
+        return {
+            "draft": draft_metrics,
+            "your_averages": None,
+            "your_top_posts_averages": None,
+            "comparison": "No historical data yet. Collect posts first.",
+        }
+
+    posts = _build_post_data(records)
+    all_avg = _avg_readability(posts)
+
+    top_posts = sorted(posts, key=lambda p: p["engagement"], reverse=True)
+    top_n = top_posts[: max(len(top_posts) // 5, 3)]
+    top_avg = _avg_readability(top_n)
+
+    comparisons = []
+    if draft_metrics["flesch_kincaid_grade"] < all_avg.get("avg_flesch_kincaid", 0):
+        comparisons.append("Your draft is more readable than your average post")
+    elif draft_metrics["flesch_kincaid_grade"] > all_avg.get("avg_flesch_kincaid", 0):
+        comparisons.append("Your draft is less readable than your average post")
+
+    if draft_metrics["word_count"] > all_avg.get("avg_word_count", 0) * 1.5:
+        comparisons.append("Your draft is significantly longer than your average post")
+    elif draft_metrics["word_count"] < all_avg.get("avg_word_count", 0) * 0.5:
+        comparisons.append("Your draft is significantly shorter than your average post")
+
+    return {
+        "draft": draft_metrics,
+        "your_averages": all_avg,
+        "your_top_posts_averages": top_avg,
+        "comparison": (
+            ". ".join(comparisons)
+            if comparisons
+            else "Metrics are close to your averages"
+        ),
+    }
 
 
 def get_strategy_suggestions(db: Session) -> dict:
