@@ -1,6 +1,5 @@
 """MCP server exposing LinkedIn analytics to LLM clients."""
 
-import json
 import sys
 from pathlib import Path
 
@@ -13,7 +12,7 @@ from database import SessionLocal, init_db  # noqa: E402
 from services import (  # noqa: E402
     analyze_draft as svc_analyze_draft,
 )
-from services import (
+from services import (  # noqa: E402
     get_analytics,
     get_post_count,
     get_recent_velocity,
@@ -26,7 +25,7 @@ from services import (
     search_posts,
     update_strategy_fields,
 )
-from services import (
+from services import (  # noqa: E402
     get_trends as svc_get_trends,
 )
 
@@ -43,8 +42,60 @@ def _get_db():
     return SessionLocal()
 
 
+# ── MCP Resources (discoverable data endpoints) ─────────────
+
+
+@mcp.resource("resource://posts")
+def resource_posts() -> str:
+    """Recent LinkedIn posts (last 50)."""
+    import json
+
+    db = _get_db()
+    try:
+        return json.dumps(list_posts(db, limit=50), indent=2)
+    finally:
+        db.close()
+
+
+@mcp.resource("resource://analytics")
+def resource_analytics() -> str:
+    """Full analytics snapshot across all posts."""
+    import json
+
+    db = _get_db()
+    try:
+        return json.dumps(
+            get_analytics(db), default=str, indent=2,
+        )
+    finally:
+        db.close()
+
+
+@mcp.resource("resource://strategy")
+def resource_strategy() -> str:
+    """Current content strategy."""
+    import json
+
+    return json.dumps(get_strategy(), indent=2)
+
+
+@mcp.resource("resource://top-posts")
+def resource_top_posts() -> str:
+    """Top 10 posts by engagement score."""
+    import json
+
+    db = _get_db()
+    try:
+        return json.dumps(get_top_posts(db, count=10), indent=2)
+    finally:
+        db.close()
+
+
+# ── MCP Tools ────────────────────────────────────────────────
+
+
 @mcp.tool()
-def get_post_analytics() -> str:
+def get_post_analytics() -> dict:
     """Get full analytics across all your LinkedIn posts.
 
     Returns aggregate metrics including engagement averages, distribution,
@@ -61,14 +112,13 @@ def get_post_analytics() -> str:
     """
     db = _get_db()
     try:
-        metrics = get_analytics(db)
-        return json.dumps(metrics, default=str, indent=2)
+        return get_analytics(db)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_posts(limit: int = 50, offset: int = 0) -> str:
+def get_posts(limit: int = 50, offset: int = 0) -> list:
     """Get your stored LinkedIn posts with readability metrics.
 
     Each post includes text, engagement stats, and readability metrics
@@ -85,14 +135,13 @@ def get_posts(limit: int = 50, offset: int = 0) -> str:
     """
     db = _get_db()
     try:
-        posts = list_posts(db, limit=limit, offset=offset)
-        return json.dumps(posts, indent=2)
+        return list_posts(db, limit=limit, offset=offset)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_top_posts_tool(count: int = 5) -> str:
+def get_top_posts_tool(count: int = 5) -> list:
     """Get your best-performing LinkedIn posts ranked by engagement.
 
     Args:
@@ -100,14 +149,13 @@ def get_top_posts_tool(count: int = 5) -> str:
     """
     db = _get_db()
     try:
-        posts = get_top_posts(db, count=count)
-        return json.dumps(posts, indent=2)
+        return get_top_posts(db, count=count)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_posting_recommendations() -> str:
+def get_posting_recommendations() -> dict:
     """Get data-driven recommendations for when, what, and how to post.
 
     Returns insights on best days, hours, topics, post length, language,
@@ -120,14 +168,13 @@ def get_posting_recommendations() -> str:
     """
     db = _get_db()
     try:
-        recs = get_recommendations(db)
-        return json.dumps(recs, default=str, indent=2)
+        return get_recommendations(db)
     finally:
         db.close()
 
 
 @mcp.tool()
-def search_posts_tool(query: str, limit: int = 20) -> str:
+def search_posts_tool(query: str, limit: int = 20) -> list:
     """Search your LinkedIn posts by keyword.
 
     Args:
@@ -136,25 +183,23 @@ def search_posts_tool(query: str, limit: int = 20) -> str:
     """
     db = _get_db()
     try:
-        posts = search_posts(db, query=query, limit=limit)
-        return json.dumps(posts, indent=2)
+        return search_posts(db, query=query, limit=limit)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_post_count_tool() -> str:
+def get_post_count_tool() -> dict:
     """Get the total number of LinkedIn posts stored."""
     db = _get_db()
     try:
-        count = get_post_count(db)
-        return json.dumps({"count": count})
+        return {"count": get_post_count(db)}
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_strategy_tool() -> str:
+def get_strategy_tool() -> dict:
     """Get your current LinkedIn content strategy.
 
     Returns your defined strategy (topics, audience, goals, tone, etc.)
@@ -162,8 +207,7 @@ def get_strategy_tool() -> str:
     has been set up yet. Use this to understand what to ask the user
     when helping them define their strategy.
     """
-    strategy = get_strategy()
-    return json.dumps(strategy, indent=2)
+    return get_strategy()
 
 
 @mcp.tool()
@@ -175,7 +219,7 @@ def update_strategy(
     tone: str | None = None,
     languages: list[str] | None = None,
     notes: str | None = None,
-) -> str:
+) -> dict:
     """Update the user's LinkedIn content strategy.
 
     Call this to save strategy choices after discussing them
@@ -198,7 +242,7 @@ def update_strategy(
             E.g., ["English", "Italian"].
         notes: Any additional context for AI assistants.
     """
-    saved = update_strategy_fields(
+    return update_strategy_fields(
         topics=topics,
         audience=audience,
         goals=goals,
@@ -207,11 +251,10 @@ def update_strategy(
         languages=languages,
         notes=notes,
     )
-    return json.dumps(saved, indent=2)
 
 
 @mcp.tool()
-def analyze_draft(text: str) -> str:
+def analyze_draft(text: str) -> dict:
     """Analyze a draft LinkedIn post before publishing.
 
     Computes readability metrics for the draft and compares them
@@ -231,14 +274,15 @@ def analyze_draft(text: str) -> str:
     """
     db = _get_db()
     try:
-        result = svc_analyze_draft(db, text)
-        return json.dumps(result, default=str, indent=2)
+        return svc_analyze_draft(db, text)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_engagement_velocity(post_id: int | None = None) -> str:
+def get_engagement_velocity(
+    post_id: int | None = None,
+) -> dict | list:
     """Get engagement velocity for a post or recent posts.
 
     Shows how fast engagement is growing over time, based on
@@ -260,16 +304,14 @@ def get_engagement_velocity(post_id: int | None = None) -> str:
     db = _get_db()
     try:
         if post_id is not None:
-            result = get_velocity(db, post_id)
-        else:
-            result = get_recent_velocity(db)
-        return json.dumps(result, default=str, indent=2)
+            return get_velocity(db, post_id)
+        return get_recent_velocity(db)
     finally:
         db.close()
 
 
 @mcp.tool()
-def get_trends_tool(days: int = 90) -> str:
+def get_trends_tool(days: int = 90) -> dict:
     """Get engagement trends over time.
 
     Shows weekly engagement averages, post counts, and totals
@@ -281,14 +323,13 @@ def get_trends_tool(days: int = 90) -> str:
     """
     db = _get_db()
     try:
-        result = svc_get_trends(db, days=days)
-        return json.dumps(result, default=str, indent=2)
+        return svc_get_trends(db, days=days)
     finally:
         db.close()
 
 
 @mcp.tool()
-def suggest_strategy_from_data() -> str:
+def suggest_strategy_from_data() -> dict:
     """Analyze your LinkedIn post history and suggest a content strategy.
 
     Use this as the first step when helping a user set up their
@@ -302,8 +343,7 @@ def suggest_strategy_from_data() -> str:
     """
     db = _get_db()
     try:
-        suggestions = get_strategy_suggestions(db)
-        return json.dumps(suggestions, default=str, indent=2)
+        return get_strategy_suggestions(db)
     finally:
         db.close()
 

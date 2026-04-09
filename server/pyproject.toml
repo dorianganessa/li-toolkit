@@ -12,7 +12,10 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["main", "database", "models", "analytics", "routes", "mcp_server", "strategy", "services", "readability"]
+py-modules = ["main", "database", "models", "analytics", "routes", "mcp_server", "strategy", "services", "readability", "cli"]
+
+[project.scripts]
+li-toolkit = "cli:main"
 
 [tool.ruff]
 line-length = 88
