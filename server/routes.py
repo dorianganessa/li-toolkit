@@ -4,7 +4,18 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import LinkedInPost, SaveResponse
+from models import (
+    AnalyticsResponse,
+    DraftAnalysisResponse,
+    LinkedInPost,
+    PostCountResponse,
+    PostSummary,
+    RecommendationsResponse,
+    SaveResponse,
+    TopPostSummary,
+    TrendsResponse,
+    VelocityResponse,
+)
 from services import ServiceError
 from services import analyze_draft as svc_analyze_draft
 from services import get_analytics as svc_analytics
@@ -39,7 +50,7 @@ def save_posts(
     return SaveResponse(**result)
 
 
-@router.get("/posts")
+@router.get("/posts", response_model=list[PostSummary])
 def list_posts(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -49,13 +60,13 @@ def list_posts(
     return svc_list_posts(db, limit=limit, offset=offset)
 
 
-@router.get("/posts/count")
+@router.get("/posts/count", response_model=PostCountResponse)
 def post_count(db: Session = Depends(get_db)) -> dict:
     """Return total number of stored posts."""
     return {"count": svc_count(db)}
 
 
-@router.get("/posts/top")
+@router.get("/posts/top", response_model=list[TopPostSummary])
 def top_posts(
     count: int = Query(5, ge=1, le=50),
     db: Session = Depends(get_db),
@@ -64,7 +75,7 @@ def top_posts(
     return svc_top_posts(db, count=count)
 
 
-@router.get("/posts/search")
+@router.get("/posts/search", response_model=list[PostSummary])
 def search_posts(
     query: str = Query(..., min_length=1),
     limit: int = Query(20, ge=1, le=100),
@@ -74,7 +85,10 @@ def search_posts(
     return svc_search(db, query=query, limit=limit)
 
 
-@router.get("/posts/{post_id}/velocity")
+@router.get(
+    "/posts/{post_id}/velocity",
+    response_model=VelocityResponse,
+)
 def post_velocity(
     post_id: int,
     db: Session = Depends(get_db),
@@ -83,7 +97,10 @@ def post_velocity(
     return svc_velocity(db, post_id)
 
 
-@router.get("/velocity/recent")
+@router.get(
+    "/velocity/recent",
+    response_model=list[VelocityResponse],
+)
 def recent_velocity(
     count: int = Query(5, ge=1, le=20),
     db: Session = Depends(get_db),
@@ -92,19 +109,25 @@ def recent_velocity(
     return svc_recent_velocity(db, count=count)
 
 
-@router.get("/analytics")
+@router.get("/analytics", response_model=AnalyticsResponse)
 def get_analytics(db: Session = Depends(get_db)) -> dict:
     """Return full analytics computed across all stored posts."""
     return svc_analytics(db)
 
 
-@router.get("/recommendations")
+@router.get(
+    "/recommendations",
+    response_model=RecommendationsResponse,
+)
 def get_recommendations(db: Session = Depends(get_db)) -> dict:
     """Return data-driven posting recommendations."""
     return svc_recommendations(db)
 
 
-@router.post("/analyze-draft")
+@router.post(
+    "/analyze-draft",
+    response_model=DraftAnalysisResponse,
+)
 def analyze_draft(
     text: str = Body(..., embed=True),
     db: Session = Depends(get_db),
@@ -113,7 +136,7 @@ def analyze_draft(
     return svc_analyze_draft(db, text)
 
 
-@router.get("/trends")
+@router.get("/trends", response_model=TrendsResponse)
 def get_trends(
     days: int = Query(90, ge=7, le=365),
     db: Session = Depends(get_db),

@@ -183,6 +183,56 @@ Strategy fields: **topics**, **audience**, **goals**, **frequency**, **tone**, *
 - **Recommendations** — actionable insights derived from all the above
 - **Top/bottom posts** — your best and worst performers
 
+## CLI
+
+li-toolkit includes a command-line interface for interacting with your data without running a server. All commands output JSON by default (pipe-friendly for agents and scripts). Add `--pretty` for human-readable text.
+
+```bash
+cd server
+
+# List posts
+uv run li-toolkit posts --limit 10
+
+# Top posts by engagement
+uv run li-toolkit top --count 5 --pretty
+
+# Search posts
+uv run li-toolkit search "remote work"
+
+# Full analytics
+uv run li-toolkit analytics
+
+# Analyze a draft before posting
+uv run li-toolkit draft "Your draft post text here"
+echo "draft from pipe" | uv run li-toolkit draft --stdin
+
+# Engagement trends
+uv run li-toolkit trends --days 90
+
+# Posting recommendations
+uv run li-toolkit recommendations
+
+# Engagement velocity (recent posts)
+uv run li-toolkit velocity
+
+# Content strategy
+uv run li-toolkit strategy
+
+# Post count
+uv run li-toolkit count
+```
+
+## MCP resources
+
+MCP resources are discoverable data endpoints that agents can browse without calling tools:
+
+| Resource URI | Description |
+|---|---|
+| `resource://posts` | Recent posts (last 50) |
+| `resource://analytics` | Full analytics snapshot |
+| `resource://strategy` | Current content strategy |
+| `resource://top-posts` | Top 10 posts by engagement |
+
 ## Development
 
 ### Running tests
@@ -199,13 +249,14 @@ li-toolkit/
 ├── server/
 │   ├── main.py           # FastAPI application
 │   ├── database.py       # SQLAlchemy models + SQLite setup + migrations
-│   ├── models.py         # Pydantic schemas
-│   ├── services.py       # Business logic (shared between REST and MCP)
+│   ├── models.py         # Pydantic schemas + typed response models
+│   ├── services.py       # Business logic (shared between REST, MCP, and CLI)
 │   ├── analytics.py      # Analytics engine + velocity analysis
 │   ├── readability.py    # Readability metrics (Flesch-Kincaid, etc.)
 │   ├── strategy.py       # Content strategy storage + suggestions
-│   ├── routes.py         # REST API endpoints
-│   ├── mcp_server.py     # MCP server for LLM integration
+│   ├── routes.py         # REST API endpoints (typed responses)
+│   ├── mcp_server.py     # MCP server + resources for LLM integration
+│   ├── cli.py            # CLI for server-free interaction
 │   └── tests/
 ├── extension/
 │   ├── manifest.json     # Chrome extension manifest (V3)
