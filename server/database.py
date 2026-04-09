@@ -49,6 +49,9 @@ class PostRecord(Base):
     created_at = Column(DateTime, server_default=func.now())
     last_scraped_at = Column(DateTime, nullable=True)
     edited = Column(Boolean, nullable=True, default=False)
+    post_type = Column(String, nullable=True)
+    hashtags = Column(Text, nullable=True)  # JSON array as string
+    has_link = Column(Boolean, nullable=True)
 
 
 class PostSnapshot(Base):
@@ -86,6 +89,9 @@ def init_db() -> None:
             "published_at": "ALTER TABLE posts ADD COLUMN published_at DATETIME",
             "last_scraped_at": "ALTER TABLE posts ADD COLUMN last_scraped_at DATETIME",
             "edited": "ALTER TABLE posts ADD COLUMN edited BOOLEAN DEFAULT 0",
+            "post_type": "ALTER TABLE posts ADD COLUMN post_type VARCHAR",
+            "hashtags": "ALTER TABLE posts ADD COLUMN hashtags TEXT",
+            "has_link": "ALTER TABLE posts ADD COLUMN has_link BOOLEAN",
         }
         applied = False
         for col_name, ddl in migrations.items():

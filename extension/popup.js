@@ -89,6 +89,38 @@ function scraperFunction() {
     return now.toISOString();
   }
 
+  // --- Extended field extractors (each wrapped in try/catch) ---
+
+  function detectPostType(container) {
+    try {
+      if (container.querySelector('.update-components-linkedin-video, video, .feed-shared-external-video')) return 'video';
+      if (container.querySelector('.update-components-carousel, .feed-shared-carousel')) return 'carousel';
+      if (container.querySelector('.feed-shared-document, .update-components-document')) return 'document';
+      if (container.querySelector('.feed-shared-poll, .update-components-poll')) return 'poll';
+      if (container.querySelector('.update-components-article, .feed-shared-article')) return 'article';
+      if (container.querySelector('.update-components-image, .feed-shared-image, img.feed-shared-image__image')) return 'image';
+      return 'text';
+    } catch (e) { return null; }
+  }
+
+  function extractHashtags(text) {
+    try {
+      const matches = text.match(/#[\w\u00C0-\u024F]+/g);
+      return matches ? [...new Set(matches.map(h => h.toLowerCase()))] : [];
+    } catch (e) { return []; }
+  }
+
+  function detectHasLink(container) {
+    try {
+      const links = container.querySelectorAll('.update-components-text a[href]');
+      for (const a of links) {
+        const href = a.getAttribute('href') || '';
+        if (href.startsWith('http') && !href.includes('linkedin.com/feed/hashtag')) return true;
+      }
+      return false;
+    } catch (e) { return null; }
+  }
+
   const posts = [];
   containers.forEach((c) => {
     try {
@@ -116,6 +148,9 @@ function scraperFunction() {
         reposts: parseNumber(getText(c, SEL.reposts)),
         impressions: parseNumber(getText(c, SEL.impressions)),
         published_at: publishedAt,
+        post_type: detectPostType(c),
+        hashtags: extractHashtags(txt),
+        has_link: detectHasLink(c),
       });
     } catch (e) { /* skip posts that fail to parse */ }
   });

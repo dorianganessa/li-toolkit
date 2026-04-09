@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json as _json
 import logging
 from datetime import datetime, timedelta
 
@@ -72,6 +73,13 @@ def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
                 impressions=post.impressions,
                 published_at=post.published_at,
                 last_scraped_at=now,
+                post_type=post.post_type,
+                hashtags=(
+                    _json.dumps(post.hashtags)
+                    if post.hashtags
+                    else None
+                ),
+                has_link=post.has_link,
             )
             db.add(record)
             saved += 1
@@ -165,6 +173,11 @@ def list_posts(
                 str(r.published_at) if r.published_at else None
             ),
             "created_at": str(r.created_at),
+            "post_type": r.post_type,
+            "hashtags": (
+                _json.loads(r.hashtags) if r.hashtags else []
+            ),
+            "has_link": r.has_link,
         }
         for r in records
     ]

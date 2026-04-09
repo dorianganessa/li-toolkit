@@ -79,13 +79,22 @@ Add this to your MCP client config (Claude Desktop, Claude Code, Cursor, etc.):
 
 If your LLM client doesn't support MCP, you can point it at the REST API directly (server must be running):
 
-- `GET /api/posts` — list posts (`?limit=`, `?offset=`)
-- `GET /api/posts/count` — total stored posts
-- `GET /api/analytics` — full analytics
-- `GET /api/strategy` — content strategy
-- `PUT /api/strategy` — update strategy
-- `GET /api/strategy/suggest` — data-driven strategy suggestions
-- `POST /api/posts` — save posts (used by extension)
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/posts` | List posts (`?limit=`, `?offset=`) |
+| `GET` | `/api/posts/count` | Total stored posts |
+| `GET` | `/api/posts/top` | Top posts by engagement (`?count=`) |
+| `GET` | `/api/posts/search` | Search posts by keyword (`?query=`, `?limit=`) |
+| `GET` | `/api/posts/{id}/velocity` | Engagement velocity for a specific post |
+| `GET` | `/api/velocity/recent` | Velocity for recently re-scraped posts |
+| `GET` | `/api/analytics` | Full analytics |
+| `GET` | `/api/recommendations` | Data-driven posting recommendations |
+| `POST` | `/api/analyze-draft` | Analyze a draft's readability vs your history |
+| `GET` | `/api/trends` | Weekly engagement trends (`?days=`) |
+| `GET` | `/api/strategy` | Content strategy |
+| `PUT` | `/api/strategy` | Update strategy |
+| `GET` | `/api/strategy/suggest` | Data-driven strategy suggestions |
+| `POST` | `/api/posts` | Save posts (used by extension) |
 
 Full interactive API docs at `http://127.0.0.1:9247/docs`.
 
@@ -101,12 +110,15 @@ Full interactive API docs at `http://127.0.0.1:9247/docs`.
 
 | Tool | Description |
 |---|---|
-| `get_post_analytics` | Full analytics: engagement averages, distribution, topics, timing, recommendations |
-| `get_posts` | Browse your stored posts with pagination |
+| `get_post_analytics` | Full analytics: engagement, readability, topics, timing, post types, recommendations |
+| `get_posts` | Browse your stored posts with readability metrics and metadata |
 | `get_top_posts` | Best-performing posts ranked by engagement |
 | `get_posting_recommendations` | Data-driven advice on when, what, and how to post |
 | `search_posts` | Search posts by keyword |
 | `get_post_count` | Total number of stored posts |
+| `analyze_draft` | Analyze a draft post's readability against your historical averages |
+| `get_engagement_velocity` | How fast engagement is growing on recent posts |
+| `get_trends` | Weekly engagement trends over time |
 | `get_strategy` | Read your current content strategy |
 | `update_strategy` | Save strategy choices (topics, audience, goals, tone, frequency, languages) |
 | `suggest_strategy_from_data` | Analyze your posts and suggest a strategy based on what works |
@@ -120,7 +132,7 @@ Once the server is running, the extension is installed, and your MCP client is c
 1. Go to your LinkedIn activity page (`linkedin.com/in/YOUR-NAME/recent-activity/all/`)
 2. Scroll down to load as many posts as you want to analyze
 3. Click the extension icon → **Extract my posts**
-4. Repeat scrolling + extracting if you want more history (duplicates are handled automatically)
+4. Repeat scrolling + extracting if you want more history (duplicates are handled automatically, and recent posts get their engagement numbers updated)
 
 ### Step 2: Set up your content strategy
 
@@ -141,25 +153,33 @@ You can revisit and refine your strategy anytime by asking the LLM to update it.
 Now when you ask your LLM to help with LinkedIn content, it has everything it needs:
 
 - **"Draft a post about X"** — pulls your strategy (tone, audience, topics) and top-performing posts as reference
+- **"Check my draft before I post"** — analyzes readability and compares against your best-performing posts
 - **"What should I post about this week?"** — checks your analytics and strategy to suggest topics
-- **"How are my posts performing?"** — returns full analytics
+- **"How are my posts performing?"** — returns full analytics with readability and post type breakdowns
+- **"How is my latest post doing?"** — shows engagement velocity and trajectory
 - **"Find my posts about Y"** — searches your post history
+- **"Show me my engagement trends"** — weekly engagement trends over time
 
 ## Content strategy
 
 The toolkit stores your content goals and preferences so your LLM has context without you repeating yourself every time.
 
-Strategy fields: **topics**, **audience**, **goals**, **frequency**, **tone**, **languages**, **notes**.
+Strategy fields: **topics**, **audience**, **goals**, **frequency**, **tone**, **languages**, **notes**, **custom_topics** (your own topic clusters for analytics).
 
 ## Analytics included
 
-- **Engagement metrics** — averages for likes, comments, impressions, engagement rate
+- **Engagement metrics** — averages for likes, comments, impressions, engagement rate (weighted: reposts 3x, comments 2x, likes 1x)
 - **Engagement distribution** — how your posts spread across engagement buckets
+- **Readability analysis** — Flesch-Kincaid grade, sentence length, vocabulary richness, and how they correlate with engagement
+- **Emoji analysis** — emoji density vs engagement performance
+- **Post type analysis** — engagement by post type (text, image, video, carousel, document, poll, article)
 - **Post length analysis** — which length performs best
 - **Language detection** — Italian vs English performance comparison
 - **Top keywords** — words most correlated with high engagement
-- **Topic classification** — performance by topic (AI/ML, Data, Leadership, Career, Startup, Engineering, Personal)
+- **Topic classification** — performance by topic (AI/ML, Data, Leadership, Career, Startup, Engineering, Personal, plus custom topics)
 - **Timing analysis** — best day of week and hour to post
+- **Engagement velocity** — how fast engagement grows on recent posts, trajectory detection (accelerating, peaked, steady, declining)
+- **Weekly trends** — engagement averages over time to track growth
 - **Recommendations** — actionable insights derived from all the above
 - **Top/bottom posts** — your best and worst performers
 
@@ -178,9 +198,11 @@ uv run pytest -v
 li-toolkit/
 ├── server/
 │   ├── main.py           # FastAPI application
-│   ├── database.py       # SQLAlchemy models + SQLite setup
+│   ├── database.py       # SQLAlchemy models + SQLite setup + migrations
 │   ├── models.py         # Pydantic schemas
-│   ├── analytics.py      # Analytics engine
+│   ├── services.py       # Business logic (shared between REST and MCP)
+│   ├── analytics.py      # Analytics engine + velocity analysis
+│   ├── readability.py    # Readability metrics (Flesch-Kincaid, etc.)
 │   ├── strategy.py       # Content strategy storage + suggestions
 │   ├── routes.py         # REST API endpoints
 │   ├── mcp_server.py     # MCP server for LLM integration
@@ -195,10 +217,17 @@ li-toolkit/
 └── README.md
 ```
 
+## Re-scraping and engagement tracking
+
+When you scrape posts that already exist in the database, the server automatically updates engagement numbers (likes, comments, impressions) for posts less than 14 days old. Each update creates a snapshot of the previous state, enabling engagement velocity tracking.
+
+To build velocity data, scrape your activity page periodically (every 6+ hours). Over time, this lets the toolkit show you how fast engagement grows on each post and whether posts are accelerating, peaking, or declining.
+
 ## Known limitations
 
 - **LinkedIn DOM selectors are fragile.** LinkedIn frequently updates their HTML structure. If the extension stops finding posts, the CSS selectors in `popup.js` and `content.js` need updating. Use the **Diagnostics** button to inspect what's available.
 - **Relative timestamps are approximate.** LinkedIn shows "2w" or "3d" instead of exact dates, so `published_at` is computed as an estimate from the scrape time.
+- **Post type detection depends on LinkedIn's DOM.** The extension detects post types (image, video, carousel, etc.) using CSS class patterns that may change. If a post type is undetectable, it defaults to "unknown" and analytics still work.
 - **The server has no authentication.** It's designed to run locally. Don't expose it to the internet without adding auth.
 
 ## Contributing

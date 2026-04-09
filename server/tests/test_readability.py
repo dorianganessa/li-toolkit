@@ -42,8 +42,9 @@ class TestComputeReadability:
             "techniques must be carefully considered."
         )
         result = compute_readability(text)
-        # Complex text should have higher FK grade
-        assert result["flesch_kincaid_grade"] > 5
+        # Complex multi-syllable text: FK grade should be 10+
+        assert result["flesch_kincaid_grade"] >= 10
+        assert result["avg_sentence_length"] >= 5
 
     def test_vocab_richness_all_unique(self):
         result = compute_readability("each word here differs completely")
@@ -154,8 +155,9 @@ class TestEmojiDensity:
         assert _emoji_density("") == 0.0
 
     def test_some_emoji(self):
+        # "hello 🔥" = 7 chars, 1 emoji → 1/7 ≈ 0.1429
         density = _emoji_density("hello 🔥")
-        assert density > 0
+        assert 0.1 < density < 0.2
 
 
 # ---------------------------------------------------------------------------
