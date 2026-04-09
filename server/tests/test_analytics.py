@@ -1,7 +1,7 @@
 """Tests for the analytics engine.
 
 Each test asserts actual computed values, not just response shape.
-Engagement formula: likes + comments * 2.
+Engagement formula: likes + comments*2 + reposts*3.
 """
 
 from datetime import datetime
@@ -93,15 +93,15 @@ class TestBuildPostData:
         posts = _build_post_data(records)
         assert posts[0]["length"] == 11
 
-    def test_readability_fields_present(self):
-        records = [_make_record(text="This is a test sentence.")]
+    def test_readability_fields_computed(self):
+        records = [_make_record(text="The cat sat on the mat.")]
         posts = _build_post_data(records)
-        assert "flesch_kincaid_grade" in posts[0]
-        assert "avg_sentence_length" in posts[0]
-        assert "vocab_richness" in posts[0]
-        assert "emoji_density" in posts[0]
-        assert "hashtag_count" in posts[0]
-        assert "word_count" in posts[0]
+        assert posts[0]["word_count"] == 6
+        assert posts[0]["avg_sentence_length"] == 6.0
+        assert posts[0]["flesch_kincaid_grade"] >= 0
+        assert posts[0]["vocab_richness"] == 0.833  # 5 unique / 6 words ("the" repeats)
+        assert posts[0]["emoji_density"] == 0.0
+        assert posts[0]["hashtag_count"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -292,20 +292,27 @@ def test_keywords_require_min_occurrences():
 def test_keywords_sorted_by_engagement():
     """Results should be sorted by avg_engagement descending."""
     posts = [
-        {"text": "alpha bravo charlie", "engagement": 10,
+        {"text": "python framework backend server", "engagement": 100,
          "published_at": None},
-        {"text": "alpha bravo charlie", "engagement": 20,
+        {"text": "python framework frontend client", "engagement": 50,
          "published_at": None},
-        {"text": "alpha bravo charlie", "engagement": 30,
+        {"text": "python framework mobile design", "engagement": 10,
+         "published_at": None},
+        {"text": "leadership hiring culture growth", "engagement": 200,
+         "published_at": None},
+        {"text": "leadership hiring feedback mentor", "engagement": 300,
+         "published_at": None},
+        {"text": "leadership hiring coaching skills", "engagement": 100,
          "published_at": None},
     ]
     result = _analyze_keywords(posts)
-    if len(result) > 1:
-        for i in range(len(result) - 1):
-            assert (
-                result[i]["avg_engagement"]
-                >= result[i + 1]["avg_engagement"]
-            )
+    # "leadership" avg=200, "python" avg=53.3 — leadership should rank higher
+    kw_names = [k["keyword"] for k in result]
+    assert "leadership" in kw_names
+    assert "python" in kw_names
+    li = kw_names.index("leadership")
+    pi = kw_names.index("python")
+    assert li < pi  # leadership ranked higher
 
 
 def test_keywords_exclude_stopwords():
@@ -587,31 +594,41 @@ def test_full_metrics_structure(client, sample_posts):
 
 
 def test_readability_vs_engagement():
-    """Posts should be bucketed by FK grade with avg engagement."""
+    """Posts should be bucketed by FK grade with correct avg engagement."""
     posts = [
         {"flesch_kincaid_grade": 3.0, "engagement": 100},
-        {"flesch_kincaid_grade": 7.0, "engagement": 200},
-        {"flesch_kincaid_grade": 10.0, "engagement": 50},
+        {"flesch_kincaid_grade": 4.0, "engagement": 200},
+        {"flesch_kincaid_grade": 7.0, "engagement": 50},
+        {"flesch_kincaid_grade": 10.0, "engagement": 80},
     ]
     result = _analyze_readability(posts)
-    labels = {r["label"] for r in result}
-    assert "Very easy" in labels
-    assert "Easy" in labels
-    assert "Standard" in labels
+    by_label = {r["label"]: r for r in result}
+    # Very easy bucket: FK 3 + 4, avg = (100+200)/2 = 150
+    assert by_label["Very easy"]["avg_engagement"] == 150.0
+    assert by_label["Very easy"]["count"] == 2
+    # Easy bucket: FK 7, avg = 50
+    assert by_label["Easy"]["avg_engagement"] == 50.0
+    # Standard bucket: FK 10, avg = 80
+    assert by_label["Standard"]["avg_engagement"] == 80.0
 
 
 def test_emoji_vs_engagement():
-    """Posts should be bucketed by emoji density."""
+    """Posts should be bucketed by emoji density with correct avg."""
     posts = [
         {"emoji_density": 0.0, "engagement": 100},
-        {"emoji_density": 0.005, "engagement": 200},
+        {"emoji_density": 0.0, "engagement": 200},
+        {"emoji_density": 0.005, "engagement": 80},
         {"emoji_density": 0.02, "engagement": 50},
     ]
     result = _analyze_emoji_engagement(posts)
-    labels = {r["label"] for r in result}
-    assert "No emoji" in labels
-    assert "Light emoji" in labels
-    assert "Heavy emoji" in labels
+    by_label = {r["label"]: r for r in result}
+    # No emoji: avg = (100+200)/2 = 150
+    assert by_label["No emoji"]["avg_engagement"] == 150.0
+    assert by_label["No emoji"]["count"] == 2
+    # Light: avg = 80
+    assert by_label["Light emoji"]["avg_engagement"] == 80.0
+    # Heavy: avg = 50
+    assert by_label["Heavy emoji"]["avg_engagement"] == 50.0
 
 
 def test_avg_readability():

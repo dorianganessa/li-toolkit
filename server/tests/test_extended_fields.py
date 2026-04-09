@@ -93,22 +93,31 @@ class TestPostTypeAnalytics:
         assert len(unknown) == 1
         assert unknown[0]["count"] == 2
 
-    def test_analytics_includes_post_type_stats(self, client):
+    def test_analytics_post_type_stats_values(self, client):
         posts = [
             {
                 "text": "Text post here with enough words",
                 "likes": 10,
                 "comments": 2,
+                "reposts": 1,
                 "post_type": "text",
             },
             {
                 "text": "Image post with some content too",
                 "likes": 50,
                 "comments": 8,
+                "reposts": 3,
                 "post_type": "image",
             },
         ]
         client.post("/api/posts", json=posts)
         data = client.get("/api/analytics").json()
-        assert "post_type_stats" in data
-        assert len(data["post_type_stats"]) >= 1
+        stats = data["post_type_stats"]
+        by_type = {s["post_type"]: s for s in stats}
+        # image: 50 + 8*2 + 3*3 = 75
+        assert by_type["image"]["avg_engagement"] == 75.0
+        assert by_type["image"]["count"] == 1
+        # text: 10 + 2*2 + 1*3 = 17
+        assert by_type["text"]["avg_engagement"] == 17.0
+        # image should rank higher (sorted by engagement)
+        assert stats[0]["post_type"] == "image"

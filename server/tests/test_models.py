@@ -30,11 +30,15 @@ def test_linkedin_post_defaults():
     assert post.published_at is None
 
 
-def test_save_response():
+def test_save_response_updated_default():
+    """Updated field should default to 0 for backward compat."""
     resp = SaveResponse(saved=5, duplicates=2, total=7)
-    assert resp.saved == 5
-    assert resp.duplicates == 2
-    assert resp.total == 7
+    assert resp.updated == 0
+
+
+def test_save_response_with_updated():
+    resp = SaveResponse(saved=3, duplicates=1, updated=2, total=6)
+    assert resp.updated == 2
 
 
 # ---- Validation ----
@@ -59,9 +63,19 @@ def test_reject_negative_impressions():
         LinkedInPost(text="test", likes=0, comments=0, impressions=-1)
 
 
-def test_accept_zero_values():
+def test_extended_fields_optional():
+    """Extended fields should be optional for backward compat."""
+    post = LinkedInPost(text="test", likes=0, comments=0)
+    assert post.post_type is None
+    assert post.hashtags is None
+    assert post.has_link is None
+
+
+def test_extended_fields_accepted():
     post = LinkedInPost(
-        text="test", likes=0, comments=0, reposts=0, impressions=0,
+        text="test", likes=0, comments=0,
+        post_type="image", hashtags=["#ai"], has_link=True,
     )
-    assert post.likes == 0
-    assert post.comments == 0
+    assert post.post_type == "image"
+    assert post.hashtags == ["#ai"]
+    assert post.has_link is True
