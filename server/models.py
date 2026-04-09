@@ -15,6 +15,9 @@ class LinkedInPost(BaseModel):
     reposts: int = Field(default=0, ge=0)
     impressions: int = Field(default=0, ge=0)
     published_at: datetime | None = None
+    post_type: str | None = None
+    hashtags: list[str] | None = None
+    has_link: bool | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

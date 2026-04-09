@@ -93,6 +93,7 @@ def _build_post_data(records: list[PostRecord]) -> list[dict]:
             "engagement_rate": engagement_rate,
             "length": len(r.text),
             "published_at": r.published_at,
+            "post_type": getattr(r, "post_type", None),
             **readability,
         })
     return posts
@@ -148,6 +149,7 @@ def compute_metrics(db: Session, custom_topics: dict | None = None) -> dict:
         "day_of_week_stats": _analyze_day_of_week(posts),
         "hour_stats": _analyze_hour(posts),
         "topic_stats": _analyze_topics(posts, custom_topics=custom_topics),
+        "post_type_stats": _analyze_post_types(posts),
         "readability_vs_engagement": _analyze_readability(posts),
         "emoji_vs_engagement": _analyze_emoji_engagement(posts),
         "avg_readability": _avg_readability(posts),
@@ -411,6 +413,29 @@ def _build_recommendations(posts: list[dict]) -> list[dict]:
         })
 
     return recs
+
+
+def _analyze_post_types(posts: list[dict]) -> list[dict]:
+    """Analyze engagement by post type."""
+    type_posts: dict[str, list[dict]] = {}
+    for p in posts:
+        pt = p.get("post_type") or "unknown"
+        type_posts.setdefault(pt, []).append(p)
+
+    result = []
+    for pt, ps in type_posts.items():
+        result.append({
+            "post_type": pt,
+            "count": len(ps),
+            "avg_engagement": round(
+                sum(p["engagement"] for p in ps) / len(ps), 1,
+            ),
+            "avg_impressions": round(
+                sum(p["impressions"] for p in ps) / len(ps), 0,
+            ),
+        })
+    result.sort(key=lambda x: x["avg_engagement"], reverse=True)
+    return result
 
 
 def _analyze_readability(posts: list[dict]) -> list[dict]:

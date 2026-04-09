@@ -574,7 +574,7 @@ def test_full_metrics_structure(client, sample_posts):
         "engagement_distribution", "length_analysis",
         "language_analysis", "top_keywords", "has_temporal_data",
         "posts_with_dates", "day_of_week_stats", "hour_stats",
-        "topic_stats", "readability_vs_engagement",
+        "topic_stats", "post_type_stats", "readability_vs_engagement",
         "emoji_vs_engagement", "avg_readability",
         "recommendations", "top_posts", "bottom_posts",
     }
