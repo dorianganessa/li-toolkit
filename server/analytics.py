@@ -1,10 +1,11 @@
 """Analytics engine for LinkedIn post data."""
 
 import re
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from database import PostRecord
+from database import PostRecord, PostSnapshot
 from readability import compute_readability
 
 # Common stopwords (English + Italian) to filter out of keyword analysis
@@ -502,3 +503,150 @@ def _get_bottom_posts(posts: list[dict]) -> list[dict]:
     ranked = sorted(posts, key=lambda p: p["engagement"], reverse=True)
     with_engagement = [p for p in ranked if p["engagement"] > 0]
     return with_engagement[-3:] if len(with_engagement) >= 3 else with_engagement
+
+
+# ---------------------------------------------------------------------------
+# Engagement velocity
+# ---------------------------------------------------------------------------
+
+
+def compute_velocity(db: Session, post_id: int) -> dict | None:
+    """Compute engagement velocity for a post from its snapshots."""
+    snapshots = (
+        db.query(PostSnapshot)
+        .filter(PostSnapshot.post_id == post_id)
+        .order_by(PostSnapshot.scraped_at.asc())
+        .all()
+    )
+    post = db.query(PostRecord).filter(PostRecord.id == post_id).first()
+    if not post or not snapshots:
+        return None
+
+    # Build timeline: snapshots + current state
+    points = []
+    for s in snapshots:
+        points.append({
+            "likes": s.likes,
+            "comments": s.comments,
+            "reposts": s.reposts,
+            "impressions": s.impressions,
+            "engagement": _engagement_score(
+                s.likes, s.comments, s.reposts,
+            ),
+            "at": s.scraped_at,
+        })
+    points.append({
+        "likes": post.likes,
+        "comments": post.comments,
+        "reposts": post.reposts,
+        "impressions": post.impressions,
+        "engagement": _engagement_score(
+            post.likes, post.comments, post.reposts,
+        ),
+        "at": post.last_scraped_at or post.created_at,
+    })
+
+    # Compute per-interval rates
+    intervals = []
+    for i in range(1, len(points)):
+        prev, curr = points[i - 1], points[i]
+        hours = max(
+            (curr["at"] - prev["at"]).total_seconds() / 3600, 0.1,
+        )
+        eng_delta = curr["engagement"] - prev["engagement"]
+        intervals.append({
+            "from": str(prev["at"]),
+            "to": str(curr["at"]),
+            "hours": round(hours, 1),
+            "engagement_delta": eng_delta,
+            "likes_delta": curr["likes"] - prev["likes"],
+            "comments_delta": curr["comments"] - prev["comments"],
+            "engagement_per_hour": round(eng_delta / hours, 1),
+        })
+
+    total_eng = points[-1]["engagement"] - points[0]["engagement"]
+    total_hours = max(
+        (points[-1]["at"] - points[0]["at"]).total_seconds() / 3600,
+        0.1,
+    )
+
+    return {
+        "post_id": post_id,
+        "snapshots": len(snapshots),
+        "intervals": intervals,
+        "total_engagement_gained": total_eng,
+        "total_hours": round(total_hours, 1),
+        "avg_engagement_per_hour": round(total_eng / total_hours, 1),
+        "trajectory": detect_trajectory(intervals),
+    }
+
+
+def detect_trajectory(intervals: list[dict]) -> str:
+    """Classify engagement trajectory from interval data.
+
+    accelerating: latest rate > 1.5x previous
+    peaked: latest rate < 0.5x previous after 2+ growing intervals
+    steady: rate change < 30% between intervals
+    declining: latest rate < 0.5x previous without prior growth
+    """
+    if len(intervals) < 2:
+        return "insufficient_data"
+
+    rates = [i["engagement_per_hour"] for i in intervals]
+    latest = rates[-1]
+    previous = rates[-2]
+
+    if previous <= 0:
+        return "steady" if latest <= 0 else "accelerating"
+
+    ratio = latest / previous
+
+    if ratio > 1.5:
+        return "accelerating"
+
+    if ratio < 0.5:
+        growing = sum(
+            1 for i in range(1, len(rates))
+            if rates[i] > rates[i - 1]
+        )
+        return "peaked" if growing >= 2 else "declining"
+
+    return "steady"
+
+
+def get_engagement_trend(
+    db: Session, days: int = 90,
+) -> list[dict]:
+    """Weekly engagement averages over time."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    records = (
+        db.query(PostRecord)
+        .filter(PostRecord.created_at >= cutoff)
+        .order_by(PostRecord.created_at.asc())
+        .all()
+    )
+    if not records:
+        return []
+
+    # Group by ISO week
+    weeks: dict[str, list] = {}
+    for r in records:
+        dt = r.created_at or r.published_at
+        if not dt:
+            continue
+        week_key = dt.strftime("%Y-W%W")
+        weeks.setdefault(week_key, []).append(r)
+
+    result = []
+    for week, recs in weeks.items():
+        engs = [
+            _engagement_score(r.likes, r.comments, r.reposts)
+            for r in recs
+        ]
+        result.append({
+            "week": week,
+            "posts": len(recs),
+            "avg_engagement": round(sum(engs) / len(engs), 1),
+            "total_engagement": sum(engs),
+        })
+    return result
