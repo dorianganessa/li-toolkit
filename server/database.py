@@ -52,6 +52,8 @@ class PostRecord(Base):
     post_type = Column(String, nullable=True)
     hashtags = Column(Text, nullable=True)  # JSON array as string
     has_link = Column(Boolean, nullable=True)
+    post_url = Column(Text, nullable=True)
+    post_urn = Column(String(64), nullable=True, index=True)
 
 
 class PostSnapshot(Base):
@@ -92,12 +94,18 @@ def init_db() -> None:
             "post_type": "ALTER TABLE posts ADD COLUMN post_type VARCHAR",
             "hashtags": "ALTER TABLE posts ADD COLUMN hashtags TEXT",
             "has_link": "ALTER TABLE posts ADD COLUMN has_link BOOLEAN",
+            "post_url": "ALTER TABLE posts ADD COLUMN post_url TEXT",
+            "post_urn": "ALTER TABLE posts ADD COLUMN post_urn VARCHAR(64)",
         }
         applied = False
         for col_name, ddl in migrations.items():
             if col_name not in cols:
                 conn.execute(text(ddl))
                 applied = True
+        # Index on post_urn (no-op if already exists)
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_posts_post_urn ON posts(post_urn)",
+        ))
         if applied:
             conn.commit()
 
