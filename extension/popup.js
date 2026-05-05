@@ -69,6 +69,38 @@ function scraperFunction() {
     return el ? el.innerText || el.textContent || '' : '';
   }
 
+  // Reposts are flaky to scrape: LinkedIn rotates between several DOM patterns
+  // and uses different copy per locale (repost/ricondivision/condivision/share).
+  // Try the legacy selector first, then scan social-count items, then aria-label.
+  function getReposts(container) {
+    const direct = container.querySelector(SEL.reposts);
+    if (direct) {
+      const t = direct.innerText || direct.textContent || '';
+      if (t.trim()) return parseNumber(t);
+    }
+    // Fallback 1: scan items inside the social-counts list
+    const items = container.querySelectorAll(
+      '.social-details-social-counts__item, .social-details-social-counts li, .social-details-social-counts__social-counts li'
+    );
+    for (const it of items) {
+      const t = (it.innerText || it.textContent || '').toLowerCase();
+      if (/repost|ricondivis|condivis|share/.test(t)) {
+        const n = parseNumber(t);
+        if (n > 0) return n;
+      }
+    }
+    // Fallback 2: aria-label on a button (e.g. "12 reposts")
+    const ariaBtn = container.querySelector(
+      '[aria-label*="repost" i], [aria-label*="ricondivis" i], [aria-label*="condivisi" i], [aria-label*="shares" i]'
+    );
+    if (ariaBtn) {
+      const aria = ariaBtn.getAttribute('aria-label') || '';
+      const m = aria.match(/(\d[\d.,]*\s*[kKmM]?)/);
+      if (m) return parseNumber(m[1]);
+    }
+    return 0;
+  }
+
   // Convert LinkedIn relative time ("1 anno", "3 gg", "2w") to ISO datetime
   function parseRelativeTime(raw) {
     if (!raw) return null;
@@ -141,16 +173,36 @@ function scraperFunction() {
         publishedAt = parseRelativeTime(rawTime);
       }
 
+      // Extract post URN — try 3 fallbacks, all optional
+      let urn = null;
+      const linkStat = c.querySelector(SEL.analyticsLink);
+      const hrefStat = linkStat?.getAttribute('href') || '';
+      const m1 = hrefStat.match(/(urn:li:activity:\d+)/);
+      if (m1) urn = m1[1];
+      if (!urn) {
+        const timeLink = c.querySelector('a[href*="/feed/update/urn:li:activity:"]');
+        const m2 = (timeLink?.getAttribute('href') || '').match(/(urn:li:activity:\d+)/);
+        if (m2) urn = m2[1];
+      }
+      if (!urn) {
+        const dataUrn = c.getAttribute('data-urn') || c.querySelector('[data-urn]')?.getAttribute('data-urn') || '';
+        const m3 = dataUrn.match(/(urn:li:activity:\d+)/);
+        if (m3) urn = m3[1];
+      }
+      const postUrl = urn ? `https://www.linkedin.com/feed/update/${urn}/` : null;
+
       posts.push({
         text: txt,
         likes: parseNumber(getText(c, SEL.reactions)),
         comments: parseNumber(getText(c, SEL.comments)),
-        reposts: parseNumber(getText(c, SEL.reposts)),
+        reposts: getReposts(c),
         impressions: parseNumber(getText(c, SEL.impressions)),
         published_at: publishedAt,
         post_type: detectPostType(c),
         hashtags: extractHashtags(txt),
         has_link: detectHasLink(c),
+        post_url: postUrl,
+        post_urn: urn,
       });
     } catch (e) { /* skip posts that fail to parse */ }
   });
@@ -252,6 +304,12 @@ btnDiagnostics.addEventListener('click', async () => {
           '.social-details-social-counts__reposts',
           '.update-components-actor__sub-description span[aria-hidden="true"]',
           'time[datetime]',
+          // URN-related selectors
+          'a.analytics-entry-point',
+          'a[href*="/feed/update/urn:li:activity:"]',
+          '[data-urn]',
+          '[data-id]',
+          'a[data-control-name]',
         ];
         const counts = {};
         selectors.forEach(s => { counts[s] = document.querySelectorAll(s).length; });
@@ -260,13 +318,30 @@ btnDiagnostics.addEventListener('click', async () => {
 
         const firstPost = document.querySelector('.feed-shared-update-v2');
         let headerHtml = '';
+        let urnDebug = {};
         if (firstPost) {
           const header = firstPost.querySelector('.update-components-actor__sub-description')
             || firstPost.querySelector('.update-components-actor');
           headerHtml = header ? header.innerHTML.substring(0, 500) : 'HEADER NOT FOUND';
+
+          // URN extraction diagnostic — exactly what the scraper tries
+          const linkStat = firstPost.querySelector('a.analytics-entry-point');
+          const timeLink = firstPost.querySelector('a[href*="/feed/update/urn:li:activity:"]');
+          const dataUrnNode = firstPost.querySelector('[data-urn]');
+          urnDebug = {
+            'analytics-entry-point.href': linkStat?.getAttribute('href') || null,
+            'feed-update-link.href': timeLink?.getAttribute('href') || null,
+            'container.data-urn': firstPost.getAttribute('data-urn') || null,
+            'descendant.data-urn': dataUrnNode?.getAttribute('data-urn') || null,
+            'container.attrs': Array.from(firstPost.attributes).map(a => `${a.name}=${a.value.substring(0, 80)}`),
+            'any-activity-link': Array.from(firstPost.querySelectorAll('a[href]'))
+              .map(a => a.getAttribute('href'))
+              .filter(h => h && h.includes('activity'))
+              .slice(0, 3),
+          };
         }
 
-        return { url: location.href, selectors: counts, headerSample: headerHtml };
+        return { url: location.href, selectors: counts, headerSample: headerHtml, urnDebug };
       },
     });
 

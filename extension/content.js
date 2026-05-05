@@ -42,6 +42,36 @@ function parseNumber(s) {
   return isNaN(n) ? 0 : n;
 }
 
+// Reposts are flaky to scrape: LinkedIn rotates between several DOM patterns
+// and uses different copy per locale (repost/ricondivision/condivision/share).
+// Try the legacy selector first, then scan social-count items, then aria-label.
+function getReposts(container) {
+  const direct = container.querySelector(SEL.reposts);
+  if (direct) {
+    const t = direct.innerText || direct.textContent || '';
+    if (t.trim()) return parseNumber(t);
+  }
+  const items = container.querySelectorAll(
+    '.social-details-social-counts__item, .social-details-social-counts li, .social-details-social-counts__social-counts li'
+  );
+  for (const it of items) {
+    const t = (it.innerText || it.textContent || '').toLowerCase();
+    if (/repost|ricondivis|condivis|share/.test(t)) {
+      const n = parseNumber(t);
+      if (n > 0) return n;
+    }
+  }
+  const ariaBtn = container.querySelector(
+    '[aria-label*="repost" i], [aria-label*="ricondivis" i], [aria-label*="condivisi" i], [aria-label*="shares" i]'
+  );
+  if (ariaBtn) {
+    const aria = ariaBtn.getAttribute('aria-label') || '';
+    const m = aria.match(/(\d[\d.,]*\s*[kKmM]?)/);
+    if (m) return parseNumber(m[1]);
+  }
+  return 0;
+}
+
 // Convert LinkedIn relative time ("1y", "3d", "2w", "1 anno", "3 gg") to ISO datetime
 function parseRelativeTime(raw) {
   if (!raw) return null;
@@ -88,13 +118,33 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         publishedAt = parseRelativeTime(rawTime);
       }
 
+      // Extract post URN — try 3 fallbacks, all optional
+      let urn = null;
+      const linkStat = c.querySelector(SEL.analyticsLink);
+      const hrefStat = linkStat?.getAttribute('href') || '';
+      const m1 = hrefStat.match(/(urn:li:activity:\d+)/);
+      if (m1) urn = m1[1];
+      if (!urn) {
+        const timeLink = c.querySelector('a[href*="/feed/update/urn:li:activity:"]');
+        const m2 = (timeLink?.getAttribute('href') || '').match(/(urn:li:activity:\d+)/);
+        if (m2) urn = m2[1];
+      }
+      if (!urn) {
+        const dataUrn = c.getAttribute('data-urn') || c.querySelector('[data-urn]')?.getAttribute('data-urn') || '';
+        const m3 = dataUrn.match(/(urn:li:activity:\d+)/);
+        if (m3) urn = m3[1];
+      }
+      const postUrl = urn ? `https://www.linkedin.com/feed/update/${urn}/` : null;
+
       posts.push({
         text: txt,
         likes: parseNumber((c.querySelector(SEL.reactions)?.innerText) || ''),
         comments: parseNumber((c.querySelector(SEL.comments)?.innerText) || ''),
-        reposts: parseNumber((c.querySelector(SEL.reposts)?.innerText) || ''),
+        reposts: getReposts(c),
         impressions: parseNumber((c.querySelector(SEL.impressions)?.innerText) || ''),
         published_at: publishedAt,
+        post_url: postUrl,
+        post_urn: urn,
       });
     } catch (e) { /* skip */ }
   });
