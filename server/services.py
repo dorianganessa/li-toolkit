@@ -57,6 +57,12 @@ def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
                 .first()
             )
             if existing:
+                # Always backfill post_url/post_urn for old rows that
+                # never had URN extraction, even when not re-scraping
+                # engagement metrics.
+                if post.post_url and not existing.post_url:
+                    existing.post_url = post.post_url
+                    existing.post_urn = post.post_urn
                 if _should_rescrape(existing, now):
                     _update_engagement(db, existing, post, now)
                     updated += 1
@@ -80,6 +86,8 @@ def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
                     else None
                 ),
                 has_link=post.has_link,
+                post_url=post.post_url,
+                post_urn=post.post_urn,
             )
             db.add(record)
             saved += 1
@@ -148,6 +156,10 @@ def _update_engagement(
     record.last_scraped_at = now
     if post.published_at and not record.published_at:
         record.published_at = post.published_at
+    # Backfill post_url/post_urn if the row was saved before URN extraction
+    if post.post_url and not record.post_url:
+        record.post_url = post.post_url
+        record.post_urn = post.post_urn
 
 
 def list_posts(
@@ -178,6 +190,8 @@ def list_posts(
                 _json.loads(r.hashtags) if r.hashtags else []
             ),
             "has_link": r.has_link,
+            "post_url": r.post_url,
+            "post_urn": r.post_urn,
         }
         for r in records
     ]
@@ -224,6 +238,8 @@ def search_posts(
             "published_at": (
                 str(r.published_at) if r.published_at else None
             ),
+            "post_url": r.post_url,
+            "post_urn": r.post_urn,
         }
         for r in records
     ]

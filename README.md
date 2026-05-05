@@ -274,6 +274,8 @@ When you scrape posts that already exist in the database, the server automatical
 
 To build velocity data, scrape your activity page periodically (every 6+ hours). Over time, this lets the toolkit show you how fast engagement grows on each post and whether posts are accelerating, peaking, or declining.
 
+The server also stores `post_url` (the LinkedIn permalink, e.g. `https://www.linkedin.com/feed/update/urn:li:activity:<id>/`) and `post_urn` (the activity URN itself) for every scraped post. Rows saved before URN extraction was added are backfilled automatically the next time the same post is scraped.
+
 ## Known limitations
 
 - **LinkedIn DOM selectors are fragile.** LinkedIn frequently updates their HTML structure. If the extension stops finding posts, the CSS selectors in `popup.js` and `content.js` need updating. Use the **Diagnostics** button to inspect what's available.

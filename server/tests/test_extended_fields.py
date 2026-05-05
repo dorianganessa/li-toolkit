@@ -53,6 +53,36 @@ class TestExtendedFieldsSave:
         assert data[0]["hashtags"] == []
         assert data[0]["has_link"] is None
 
+    def test_save_with_post_url_and_urn(self, client):
+        urn = "urn:li:activity:7457009885768040448"
+        posts = [{
+            "text": "Post with permalink",
+            "likes": 5,
+            "comments": 1,
+            "post_url": f"https://www.linkedin.com/feed/update/{urn}/",
+            "post_urn": urn,
+        }]
+        resp = client.post("/api/posts", json=posts)
+        assert resp.json()["saved"] == 1
+        data = client.get("/api/posts").json()
+        assert data[0]["post_urn"] == urn
+        assert data[0]["post_url"].endswith(f"{urn}/")
+
+    def test_post_url_backfilled_on_existing_row(self, client):
+        """A post saved without URN gets URN populated on a later scrape."""
+        urn = "urn:li:activity:1234567890"
+        client.post("/api/posts", json=[{
+            "text": "Same post, scraped twice", "likes": 1, "comments": 0,
+        }])
+        # Re-send with URN now populated
+        client.post("/api/posts", json=[{
+            "text": "Same post, scraped twice", "likes": 1, "comments": 0,
+            "post_url": f"https://www.linkedin.com/feed/update/{urn}/",
+            "post_urn": urn,
+        }])
+        data = client.get("/api/posts").json()
+        assert data[0]["post_urn"] == urn
+
 
 # ---------------------------------------------------------------------------
 # Post type analytics
