@@ -282,6 +282,7 @@ The server also stores `post_url` (the LinkedIn permalink, e.g. `https://www.lin
 - **Relative timestamps are approximate.** LinkedIn shows "2w" or "3d" instead of exact dates, so `published_at` is computed as an estimate from the scrape time.
 - **Post type detection depends on LinkedIn's DOM.** The extension detects post types (image, video, carousel, etc.) using CSS class patterns that may change. If a post type is undetectable, it defaults to "unknown" and analytics still work.
 - **The server has no authentication.** It's designed to run locally. Don't expose it to the internet without adding auth.
+- **Reposts** are saved with `is_repost` and excluded from analytics.
 
 ## Contributing
 

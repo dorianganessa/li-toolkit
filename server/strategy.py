@@ -16,6 +16,7 @@ from analytics import (
     _has_temporal_data,
 )
 from database import PostRecord
+from repost_filter import exclude_reposts
 
 # Default path — configurable via set_strategy_path()
 _strategy_path = Path(__file__).parent / "strategy.json"
@@ -94,7 +95,7 @@ def save_strategy(strategy: dict) -> dict:
 
 def suggest_strategy(db: Session) -> dict:
     """Analyze post history and suggest a strategy based on what works."""
-    records = db.query(PostRecord).all()
+    records = exclude_reposts(db.query(PostRecord).all())
 
     if not records:
         return {

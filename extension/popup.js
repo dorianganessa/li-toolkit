@@ -153,6 +153,46 @@ function scraperFunction() {
     } catch (e) { return null; }
   }
 
+  // Detect LinkedIn reposts (shared content from another author).
+  // Multilingual: "reposted this", "ha ricondiviso", etc.
+  function detectRepost(container) {
+    try {
+      if (container.querySelector(
+        '.update-components-mini-update-v2, .feed-shared-reshare, .update-components-reshared-content'
+      )) {
+        return true;
+      }
+      const headerSelectors = [
+        '.update-components-header__text-view',
+        '.feed-shared-update-v2__description-wrapper',
+        '.update-components-actor__description',
+        '.update-components-header',
+      ];
+      for (const sel of headerSelectors) {
+        const el = container.querySelector(sel);
+        if (!el) continue;
+        const t = (el.innerText || el.textContent || '').toLowerCase();
+        if (/reposted this|has reposted|ha ricondiviso|ha condiviso|repost di|shared this|condiviso questo/.test(t)) {
+          return true;
+        }
+      }
+      return false;
+    } catch (e) { return false; }
+  }
+
+  function getOriginalAuthor(container) {
+    try {
+      const nested = container.querySelector(
+        '.update-components-mini-update-v2 .update-components-actor__title span[aria-hidden="true"], ' +
+        '.feed-shared-reshare .update-components-actor__title span[aria-hidden="true"], ' +
+        '.update-components-mini-update-v2 .update-components-actor__title, ' +
+        '.feed-shared-reshare .update-components-actor__title'
+      );
+      if (nested) return cleanText(nested.innerText || nested.textContent);
+      return null;
+    } catch (e) { return null; }
+  }
+
   const posts = [];
   containers.forEach((c) => {
     try {
@@ -190,6 +230,7 @@ function scraperFunction() {
         if (m3) urn = m3[1];
       }
       const postUrl = urn ? `https://www.linkedin.com/feed/update/${urn}/` : null;
+      const isRepost = detectRepost(c);
 
       posts.push({
         text: txt,
@@ -203,6 +244,8 @@ function scraperFunction() {
         has_link: detectHasLink(c),
         post_url: postUrl,
         post_urn: urn,
+        is_repost: isRepost,
+        original_author: isRepost ? getOriginalAuthor(c) : null,
       });
     } catch (e) { /* skip posts that fail to parse */ }
   });

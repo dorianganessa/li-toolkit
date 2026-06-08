@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from database import PostRecord, PostSnapshot
 from readability import compute_readability
+from repost_filter import exclude_reposts
 
 # Common stopwords (English + Italian) to filter out of keyword analysis
 _STOPWORDS = {
@@ -101,7 +102,7 @@ def _build_post_data(records: list[PostRecord]) -> list[dict]:
 
 def compute_metrics(db: Session, custom_topics: dict | None = None) -> dict:
     """Compute all aggregate metrics across stored posts."""
-    records = db.query(PostRecord).all()
+    records = exclude_reposts(db.query(PostRecord).all())
 
     if not records:
         return {"empty": True}
@@ -644,7 +645,7 @@ def get_engagement_trend(
 ) -> list[dict]:
     """Weekly engagement averages over time."""
     cutoff = datetime.utcnow() - timedelta(days=days)
-    records = (
+    records = exclude_reposts(
         db.query(PostRecord)
         .filter(PostRecord.created_at >= cutoff)
         .order_by(PostRecord.created_at.asc())

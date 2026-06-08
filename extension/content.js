@@ -92,6 +92,44 @@ function parseRelativeTime(raw) {
   return now.toISOString();
 }
 
+function detectRepost(container) {
+  try {
+    if (container.querySelector(
+      '.update-components-mini-update-v2, .feed-shared-reshare, .update-components-reshared-content'
+    )) {
+      return true;
+    }
+    const headerSelectors = [
+      '.update-components-header__text-view',
+      '.feed-shared-update-v2__description-wrapper',
+      '.update-components-actor__description',
+      '.update-components-header',
+    ];
+    for (const sel of headerSelectors) {
+      const el = container.querySelector(sel);
+      if (!el) continue;
+      const t = (el.innerText || el.textContent || '').toLowerCase();
+      if (/reposted this|has reposted|ha ricondiviso|ha condiviso|repost di|shared this|condiviso questo/.test(t)) {
+        return true;
+      }
+    }
+    return false;
+  } catch (e) { return false; }
+}
+
+function getOriginalAuthor(container) {
+  try {
+    const nested = container.querySelector(
+      '.update-components-mini-update-v2 .update-components-actor__title span[aria-hidden="true"], ' +
+      '.feed-shared-reshare .update-components-actor__title span[aria-hidden="true"], ' +
+      '.update-components-mini-update-v2 .update-components-actor__title, ' +
+      '.feed-shared-reshare .update-components-actor__title'
+    );
+    if (nested) return cleanText(nested.innerText || nested.textContent);
+    return null;
+  } catch (e) { return null; }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action !== 'START_SCRAPING') return;
 
@@ -135,6 +173,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (m3) urn = m3[1];
       }
       const postUrl = urn ? `https://www.linkedin.com/feed/update/${urn}/` : null;
+      const isRepost = detectRepost(c);
 
       posts.push({
         text: txt,
@@ -145,6 +184,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         published_at: publishedAt,
         post_url: postUrl,
         post_urn: urn,
+        is_repost: isRepost,
+        original_author: isRepost ? getOriginalAuthor(c) : null,
       });
     } catch (e) { /* skip */ }
   });
