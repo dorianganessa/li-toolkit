@@ -20,6 +20,8 @@ class LinkedInPost(BaseModel):
     has_link: bool | None = None
     post_url: str | None = None
     post_urn: str | None = None
+    is_repost: bool = False
+    original_author: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -58,6 +60,8 @@ class PostSummary(BaseModel):
     has_link: bool | None = None
     post_url: str | None = None
     post_urn: str | None = None
+    is_repost: bool = False
+    original_author: str | None = None
 
 
 class TopPostSummary(BaseModel):

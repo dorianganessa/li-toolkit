@@ -21,6 +21,7 @@ from analytics import (
 from database import PostRecord, PostSnapshot
 from models import LinkedInPost
 from readability import compute_readability
+from repost_filter import exclude_reposts
 from strategy import load_strategy, save_strategy, suggest_strategy
 
 # Posts younger than this are eligible for re-scraping
@@ -57,6 +58,9 @@ def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
                 .first()
             )
             if existing:
+                existing.is_repost = post.is_repost
+                if post.original_author:
+                    existing.original_author = post.original_author
                 # Always backfill post_url/post_urn for old rows that
                 # never had URN extraction, even when not re-scraping
                 # engagement metrics.
@@ -88,6 +92,8 @@ def save_posts(db: Session, posts: list[LinkedInPost]) -> dict:
                 has_link=post.has_link,
                 post_url=post.post_url,
                 post_urn=post.post_urn,
+                is_repost=post.is_repost,
+                original_author=post.original_author,
             )
             db.add(record)
             saved += 1
@@ -192,6 +198,8 @@ def list_posts(
             "has_link": r.has_link,
             "post_url": r.post_url,
             "post_urn": r.post_urn,
+            "is_repost": bool(r.is_repost),
+            "original_author": r.original_author,
         }
         for r in records
     ]
@@ -240,6 +248,8 @@ def search_posts(
             ),
             "post_url": r.post_url,
             "post_urn": r.post_urn,
+            "is_repost": bool(r.is_repost),
+            "original_author": r.original_author,
         }
         for r in records
     ]
@@ -247,7 +257,7 @@ def search_posts(
 
 def get_top_posts(db: Session, count: int = 5) -> list[dict]:
     """Return top posts ranked by engagement score."""
-    records = db.query(PostRecord).all()
+    records = exclude_reposts(db.query(PostRecord).all())
     posts = []
     for r in records:
         engagement = _engagement_score(r.likes, r.comments, r.reposts)
@@ -321,7 +331,7 @@ def analyze_draft(db: Session, text: str) -> dict:
     draft_metrics = compute_readability(text)
     draft_metrics["char_count"] = len(text)
 
-    records = db.query(PostRecord).all()
+    records = exclude_reposts(db.query(PostRecord).all())
     if not records:
         return {
             "draft": draft_metrics,

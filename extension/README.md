@@ -41,7 +41,8 @@ The extension runs a scraper function across all page frames (LinkedIn loads pos
 - **Reposts** — repost/share count
 - **Impressions** — view count (when available via analytics link)
 - **Published date** — estimated from relative timestamps ("2w", "3d", etc.)
-- **Post URL & URN** — permalink (`https://www.linkedin.com/feed/update/<urn>/`) and the activity URN, extracted via 3 fallbacks: the analytics-entry-point link, any `/feed/update/urn:li:activity:` link inside the post, or the container's `data-urn` attribute. Both fields are nullable; the server upserts them by `text_hash` so re-scraping a post will backfill its URL on existing rows.
+- **Post URL & URN** — permalink and activity URN, extracted via 3 fallbacks
+- **Repost detection** — flags items where LinkedIn shows "reposted this" / nested original author; saved as `is_repost` + `original_author` and excluded from analytics
 
 Numbers are parsed from various formats: `1.2k`, `1,200`, `1.200` (European notation).
 

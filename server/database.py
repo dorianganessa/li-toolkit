@@ -54,6 +54,8 @@ class PostRecord(Base):
     has_link = Column(Boolean, nullable=True)
     post_url = Column(Text, nullable=True)
     post_urn = Column(String(64), nullable=True, index=True)
+    is_repost = Column(Boolean, nullable=False, default=False)
+    original_author = Column(String, nullable=True)
 
 
 class PostSnapshot(Base):
@@ -96,6 +98,8 @@ def init_db() -> None:
             "has_link": "ALTER TABLE posts ADD COLUMN has_link BOOLEAN",
             "post_url": "ALTER TABLE posts ADD COLUMN post_url TEXT",
             "post_urn": "ALTER TABLE posts ADD COLUMN post_urn VARCHAR(64)",
+            "is_repost": "ALTER TABLE posts ADD COLUMN is_repost BOOLEAN DEFAULT 0",
+            "original_author": "ALTER TABLE posts ADD COLUMN original_author VARCHAR",
         }
         applied = False
         for col_name, ddl in migrations.items():
